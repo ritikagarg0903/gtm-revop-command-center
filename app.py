@@ -9,14 +9,11 @@ import streamlit as st
 from src.generate_data import write_data
 from src.metrics import (
     OPEN_STAGES,
-    STAGE_ORDER,
     filter_deals,
-    forecast_accuracy,
     open_deals,
     pipeline_coverage,
     quota_attainment,
     sales_cycle_days,
-    stage_conversion,
     stale_deals,
     win_rate,
 )
@@ -30,7 +27,7 @@ QUOTAS_PATH = DATA_DIR / "rep_quotas.csv"
 
 
 st.set_page_config(
-    page_title="AI-Assisted Sales Pipeline Command Center",
+    page_title="Sales Pipeline Command Center",
     page_icon=":bar_chart:",
     layout="wide",
 )
@@ -83,10 +80,10 @@ def bar_chart(df: pd.DataFrame, x: str, y: str, color: str | None = None, title:
 
 deals, quotas = load_data()
 
-st.title("AI-Assisted Sales Pipeline Command Center")
+st.title("Sales Pipeline Command Center")
 st.caption(
-    "A CRM command center for spotting pipeline risk, forecast gaps, rep performance patterns, "
-    "and deals that need manager attention."
+    "A revenue operations view of pipeline coverage, deal health, rep performance, "
+    "and the actions managers should prioritize."
 )
 
 with st.sidebar:
@@ -110,6 +107,8 @@ if filtered.empty:
 
 filtered_open = open_deals(filtered)
 attainment = quota_attainment(filtered, quotas, selected_quarter)
+if selected_segments:
+    attainment = attainment[attainment["segment_focus"].isin(selected_segments)].copy()
 coverage = pipeline_coverage(filtered, attainment)
 won = filtered[filtered["stage"] == "Closed Won"]
 closed = filtered[filtered["stage"].isin(["Closed Won", "Closed Lost"])]
@@ -120,57 +119,108 @@ tabs = st.tabs(
         "Executive Overview",
         "Pipeline Health",
         "Rep Performance",
-        "Forecast Accuracy",
-        "Funnel Snapshot",
-        "AI Deal Risk",
+        "Manager Action Queue",
     ]
 )
 
 with tabs[0]:
     section_header(
         "Executive Overview",
-        "Leadership view of pipeline, quota gap, forecast realism, and risk.",
+        "Can the current pipeline close the remaining revenue gap, and how much of it needs attention?",
     )
 
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Open pipeline", money(coverage["open_pipeline"]))
-    col2.metric("Weighted pipeline", money(coverage["weighted_pipeline"]))
-    col3.metric("Remaining quota gap", money(coverage["remaining_quota_gap"]))
-    col4.metric("Pipeline coverage", f"{coverage['pipeline_coverage']:.2f}x")
-    col5.metric("High-risk pipeline", money(high_risk["deal_amount"].sum()))
+    col1.metric(
+        "Total Open Deals",
+        money(coverage["open_pipeline"]),
+        help="Total value of all opportunities that have not been won or lost.",
+    )
+    col2.metric(
+        "Expected Pipeline Value",
+        money(coverage["weighted_pipeline"]),
+        help="Open pipeline adjusted by each sales stage's probability of closing.",
+    )
+    col3.metric(
+        "Revenue Needed to Hit Quota",
+        money(coverage["remaining_quota_gap"]),
+        help="Team quota minus revenue already closed won in the selected period.",
+    )
+    col4.metric(
+        "Open Pipeline per $1 Needed",
+        f"${coverage['pipeline_coverage']:.2f}",
+        help="Open pipeline divided by the revenue still needed to reach quota.",
+    )
+    col5.metric(
+        "Pipeline at High Risk",
+        money(high_risk["deal_amount"].sum()),
+        help="Value of open opportunities flagged for immediate manager review.",
+    )
 
     if coverage["remaining_quota_gap"] > 0:
         insight(
-            f"The team has {coverage['pipeline_coverage']:.2f}x raw coverage and "
-            f"{coverage['weighted_coverage']:.2f}x weighted coverage against the remaining quota gap."
+            f"For every $1 of revenue still needed to reach quota, the team has "
+            f"${coverage['pipeline_coverage']:.2f} in open opportunities. After adjusting for the likelihood "
+            f"of each sales stage closing, that falls to ${coverage['weighted_coverage']:.2f}."
         )
     else:
         insight("The selected team has already covered quota for this filtered period.")
 
-    stage_pipeline = (
-        filtered_open.groupby("stage", as_index=False)[["deal_amount", "weighted_pipeline"]]
-        .sum()
-        .sort_values("stage", key=lambda values: values.map({stage: i for i, stage in enumerate(OPEN_STAGES)}))
-    )
+    overdue_commit = filtered_open[
+        (filtered_open["forecast_category"] == "Commit")
+        & (pd.to_datetime(filtered_open["expected_close_date"], errors="coerce") < pd.Timestamp.today())
+    ]
+    risky_commit = filtered_open[
+        (filtered_open["forecast_category"] == "Commit")
+        & (filtered_open["ai_risk_level"].isin(["High", "Medium"]))
+    ]
 
     left, right = st.columns(2)
     with left:
+        stage_pipeline = (
+            filtered_open.groupby("stage", as_index=False)[["deal_amount", "weighted_pipeline"]]
+            .sum()
+            .sort_values("stage", key=lambda values: values.map({stage: i for i, stage in enumerate(OPEN_STAGES)}))
+        )
         if stage_pipeline.empty:
             st.warning("No open pipeline matches the selected filters.")
         else:
+            stage_long = stage_pipeline.melt(
+                id_vars="stage",
+                value_vars=["deal_amount", "weighted_pipeline"],
+                var_name="pipeline_type",
+                value_name="pipeline_value",
+            )
+            stage_long["pipeline_type"] = stage_long["pipeline_type"].map(
+                {"deal_amount": "Open pipeline", "weighted_pipeline": "Weighted pipeline"}
+            )
             st.plotly_chart(
-                bar_chart(stage_pipeline, "stage", "deal_amount", title="Open Pipeline by Stage"),
+                bar_chart(
+                    stage_long,
+                    "stage",
+                    "pipeline_value",
+                    color="pipeline_type",
+                    title="Open and Weighted Pipeline by Stage",
+                ),
                 use_container_width=True,
             )
     with right:
-        risk_by_segment = high_risk.groupby("segment", as_index=False)["deal_amount"].sum()
-        if risk_by_segment.empty:
-            st.warning("No high-risk open pipeline matches the selected filters.")
-        else:
-            st.plotly_chart(
-                bar_chart(risk_by_segment, "segment", "deal_amount", title="High-Risk Pipeline by Segment"),
-                use_container_width=True,
-            )
+        forecast_watch = pd.DataFrame(
+            {
+                "risk_indicator": ["Past-due Commit", "At-risk Commit"],
+                "pipeline_value": [overdue_commit["deal_amount"].sum(), risky_commit["deal_amount"].sum()],
+            }
+        )
+        st.plotly_chart(
+            bar_chart(forecast_watch, "risk_indicator", "pipeline_value", title="Commit Forecast Risk"),
+            use_container_width=True,
+        )
+
+    if not overdue_commit.empty or not risky_commit.empty:
+        insight(
+            f"{money(overdue_commit['deal_amount'].sum())} in Commit is past its expected close date and "
+            f"{money(risky_commit['deal_amount'].sum())} is rated medium or high risk. "
+            "These deals should be revalidated before the next forecast call."
+        )
 
 with tabs[1]:
     section_header(
@@ -183,7 +233,13 @@ with tabs[1]:
         .sum()
         .sort_values("stage", key=lambda values: values.map({stage: i for i, stage in enumerate(OPEN_STAGES)}))
     )
-    segment_pipeline = filtered_open.groupby("segment", as_index=False)["deal_amount"].sum()
+    risk_summary = (
+        filtered_open.groupby("ai_risk_level", as_index=False)
+        .agg(deal_count=("deal_id", "count"), pipeline_value=("deal_amount", "sum"))
+    )
+    risk_order = {"Low": 0, "Medium": 1, "High": 2}
+    risk_summary["risk_order"] = risk_summary["ai_risk_level"].map(risk_order)
+    risk_summary = risk_summary.sort_values("risk_order")
 
     left, right = st.columns(2)
     with left:
@@ -195,12 +251,13 @@ with tabs[1]:
                 use_container_width=True,
             )
     with right:
-        if segment_pipeline.empty:
-            st.warning("No open pipeline segment mix is available for the selected filters.")
+        if risk_summary.empty:
+            st.warning("No open deals are available for risk review under the selected filters.")
         else:
-            fig = px.pie(segment_pipeline, values="deal_amount", names="segment", title="Open Pipeline by Segment")
-            fig.update_layout(height=390)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(
+                bar_chart(risk_summary, "ai_risk_level", "pipeline_value", title="Open Pipeline by Risk Level"),
+                use_container_width=True,
+            )
 
     aged = stale_deals(filtered, min_days=45)
     aged_value = aged["deal_amount"].sum()
@@ -222,6 +279,28 @@ with tabs[1]:
         ].head(20),
         use_container_width=True,
         hide_index=True,
+    )
+
+    st.markdown("**Largest High-Risk Opportunities**")
+    st.dataframe(
+        high_risk[
+            [
+                "deal_id",
+                "account_name",
+                "rep_name",
+                "stage",
+                "forecast_category",
+                "deal_amount",
+                "days_in_current_stage",
+                "ai_risk_reason",
+            ]
+        ].sort_values("deal_amount", ascending=False).head(15),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "ai_risk_reason": "Risk reason",
+            "deal_amount": st.column_config.NumberColumn("Deal amount", format="$%d"),
+        },
     )
 
 with tabs[2]:
@@ -288,101 +367,9 @@ with tabs[2]:
 
 with tabs[3]:
     section_header(
-        "Forecast Accuracy",
-        "Comparison of committed forecast dollars against actual closed-won revenue.",
+        "Manager Action Queue",
+        "Prioritized opportunities that need validation, escalation, or a clear next step.",
     )
-
-    forecast = forecast_accuracy(filtered)
-    if forecast.empty:
-        st.warning("No Commit forecast deals in the selected filters.")
-    else:
-        left, right = st.columns(2)
-        with left:
-            st.plotly_chart(
-                bar_chart(forecast, "rep_name", "committed_pipeline", title="Committed Forecast by Rep"),
-                use_container_width=True,
-            )
-        with right:
-            st.plotly_chart(
-                bar_chart(forecast, "rep_name", "accuracy_pct", title="Commit Forecast Accuracy by Rep"),
-                use_container_width=True,
-            )
-
-        over_commit = forecast[forecast["accuracy_pct"] < 70]
-        insight(
-            f"{len(over_commit)} reps are below 70% commit accuracy in the selected period, "
-            "which may indicate over-commit risk or slipped deals."
-        )
-        st.dataframe(forecast, use_container_width=True, hide_index=True)
-
-    overdue_commit = filtered_open[
-        (filtered_open["forecast_category"] == "Commit")
-        & (pd.to_datetime(filtered_open["expected_close_date"], errors="coerce") < pd.Timestamp.today())
-    ]
-    st.markdown("**Open Commit Deals Past Expected Close Date**")
-    st.dataframe(
-        overdue_commit[
-            [
-                "deal_id",
-                "account_name",
-                "rep_name",
-                "stage",
-                "deal_amount",
-                "expected_close_date",
-                "days_in_current_stage",
-                "ai_risk_level",
-                "recommended_action",
-            ]
-        ],
-        use_container_width=True,
-        hide_index=True,
-    )
-
-with tabs[4]:
-    section_header(
-        "Funnel Snapshot",
-        "Current stage distribution and likely pressure points in the active funnel.",
-    )
-
-    conversion = stage_conversion(filtered)
-    fig = px.bar(
-        conversion,
-        x="stage",
-        y="deal_count",
-        category_orders={"stage": STAGE_ORDER},
-        title="Deal Count by Stage",
-        text_auto=True,
-    )
-    fig.update_layout(height=390)
-    st.plotly_chart(fig, use_container_width=True)
-
-    active_stages = conversion[conversion["stage"].isin(OPEN_STAGES)]
-    if not active_stages.empty:
-        largest_stage = active_stages.sort_values("deal_count", ascending=False).iloc[0]
-        insight(
-            f"The largest active-stage concentration is {largest_stage['stage']} with "
-            f"{int(largest_stage['deal_count'])} deals, which is where pipeline review should look first."
-        )
-
-    st.dataframe(conversion, use_container_width=True, hide_index=True)
-
-with tabs[5]:
-    section_header(
-        "AI Deal Risk",
-        "AI-assisted risk triage using explainable rules over notes, stage age, activity, and forecast status.",
-    )
-
-    st.caption(
-        "The risk layer summarizes unstructured deal notes into a risk level, reason, and recommended action."
-    )
-
-    risk_summary = (
-        filtered_open.groupby(["ai_risk_level"], as_index=False)
-        .agg(deal_count=("deal_id", "count"), pipeline_value=("deal_amount", "sum"))
-    )
-    risk_order = {"Low": 0, "Medium": 1, "High": 2}
-    risk_summary["risk_order"] = risk_summary["ai_risk_level"].map(risk_order)
-    risk_summary = risk_summary.sort_values("risk_order")
 
     risk_rep = (
         filtered_open[filtered_open["ai_risk_level"] == "High"]
@@ -391,23 +378,13 @@ with tabs[5]:
         .sort_values("deal_amount", ascending=False)
     )
 
-    left, right = st.columns(2)
-    with left:
-        if risk_summary.empty:
-            st.warning("No open deals are available for risk scoring under the selected filters.")
-        else:
-            st.plotly_chart(
-                bar_chart(risk_summary, "ai_risk_level", "pipeline_value", title="Open Pipeline by Risk Level"),
-                use_container_width=True,
-            )
-    with right:
-        if risk_rep.empty:
-            st.warning("No high-risk open deals are available under the selected filters.")
-        else:
-            st.plotly_chart(
-                bar_chart(risk_rep, "rep_name", "deal_amount", title="High-Risk Pipeline by Rep"),
-                use_container_width=True,
-            )
+    if risk_rep.empty:
+        st.warning("No high-risk open deals are available under the selected filters.")
+    else:
+        st.plotly_chart(
+            bar_chart(risk_rep, "rep_name", "deal_amount", title="High-Risk Pipeline by Owner"),
+            use_container_width=True,
+        )
 
     if not high_risk.empty:
         largest = high_risk.sort_values("deal_amount", ascending=False).iloc[0]
@@ -419,8 +396,12 @@ with tabs[5]:
     else:
         insight("No high-risk open deals are present in the selected filters.")
 
+    action_queue = filtered_open[filtered_open["ai_risk_level"].isin(["High", "Medium"])].copy()
+    action_queue["risk_priority"] = action_queue["ai_risk_level"].map({"High": 0, "Medium": 1})
+    action_queue = action_queue.sort_values(["risk_priority", "deal_amount"], ascending=[True, False])
+
     st.dataframe(
-        filtered_open[
+        action_queue[
             [
                 "deal_id",
                 "account_name",
@@ -431,12 +412,18 @@ with tabs[5]:
                 "deal_amount",
                 "days_in_current_stage",
                 "last_activity_date",
-                "notes",
                 "ai_risk_level",
                 "ai_risk_reason",
                 "recommended_action",
             ]
-        ].sort_values(["ai_risk_level", "deal_amount"], ascending=[False, False]),
+        ],
         use_container_width=True,
         hide_index=True,
+        column_config={
+            "ai_risk_level": "Risk level",
+            "ai_risk_reason": "Risk reason",
+            "recommended_action": "Manager action",
+            "deal_amount": st.column_config.NumberColumn("Deal amount", format="$%d"),
+        },
     )
+

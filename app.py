@@ -31,7 +31,7 @@ LEADS_PATH = DATA_DIR / "synthetic_leads.csv"
 
 
 st.set_page_config(
-    page_title="Revenue Operations Command Center",
+    page_title="GTM & Revenue Operations Command Center",
     page_icon=":bar_chart:",
     layout="wide",
 )
@@ -100,10 +100,10 @@ def bar_chart(df: pd.DataFrame, x: str, y: str, color: str | None = None, title:
 
 deals, quotas, leads = load_data()
 
-st.title("Revenue Operations Command Center")
+st.title("GTM & Revenue Operations Command Center")
 st.caption(
-    "A revenue operations view of pipeline coverage, deal health, rep performance, "
-    "and the actions managers should prioritize."
+    "An end-to-end view of demand conversion, acquisition sources, pipeline health, "
+    "sales performance, and manager actions."
 )
 
 with st.sidebar:
@@ -216,7 +216,7 @@ with tabs[0]:
                 value_name="pipeline_value",
             )
             stage_long["pipeline_type"] = stage_long["pipeline_type"].map(
-                {"deal_amount": "Open pipeline", "weighted_pipeline": "Weighted pipeline"}
+                {"deal_amount": "Total open pipeline", "weighted_pipeline": "Expected pipeline value"}
             )
             st.plotly_chart(
                 bar_chart(
@@ -224,7 +224,7 @@ with tabs[0]:
                     "stage",
                     "pipeline_value",
                     color="pipeline_type",
-                    title="Open and Weighted Pipeline by Stage",
+                    title="Total vs Expected Pipeline Value by Stage",
                 ),
                 use_container_width=True,
             )
@@ -274,9 +274,11 @@ with tabs[1]:
             x="record_count",
             y="lifecycle_stage",
             title="Lead-to-Customer Funnel",
-            text="conversion_from_prior_pct",
+            custom_data=["conversion_from_prior_pct"],
         )
-        funnel_fig.update_traces(texttemplate="%{value:,} Â· %{text:.1f}% from prior")
+        funnel_fig.update_traces(
+            texttemplate="%{value:,} records<br>%{customdata[0]:.1f}% of previous stage"
+        )
         funnel_fig.update_layout(height=430, margin=dict(l=20, r=20, t=50, b=20))
         st.plotly_chart(funnel_fig, use_container_width=True)
     with right:
@@ -340,7 +342,7 @@ with tabs[1]:
 with tabs[2]:
     section_header(
         "Pipeline Health",
-        "Where pipeline dollars sit, how much is weighted, and which deals are aging.",
+        "Where open pipeline sits, its expected value after stage probability, and which deals are aging.",
     )
 
     stage_pipeline = (
@@ -361,8 +363,16 @@ with tabs[2]:
         if stage_pipeline.empty:
             st.warning("No open pipeline matches the selected filters.")
         else:
+            expected_stage_pipeline = stage_pipeline.rename(
+                columns={"weighted_pipeline": "expected_pipeline_value"}
+            )
             st.plotly_chart(
-                bar_chart(stage_pipeline, "stage", "weighted_pipeline", title="Weighted Pipeline by Stage"),
+                bar_chart(
+                    expected_stage_pipeline,
+                    "stage",
+                    "expected_pipeline_value",
+                    title="Expected Pipeline Value by Stage",
+                ),
                 use_container_width=True,
             )
     with right:
@@ -439,23 +449,36 @@ with tabs[3]:
         .fillna(0)
     )
 
-    left, right = st.columns(2)
-    with left:
-        if rep_table["attainment_pct"].sum() == 0:
-            st.warning("No closed-won revenue is available for quota attainment in the selected period.")
-        else:
-            st.plotly_chart(
-                bar_chart(rep_table, "rep_name", "attainment_pct", title="Quota Attainment by Rep"),
-                use_container_width=True,
-            )
-    with right:
-        if rep_table["win_rate"].sum() == 0:
-            st.warning("No closed won/lost outcomes are available for win-rate comparison in the selected period.")
-        else:
-            st.plotly_chart(
-                bar_chart(rep_table, "rep_name", "win_rate", title="Win Rate by Rep"),
-                use_container_width=True,
-            )
+    if rep_table["attainment_pct"].sum() == 0 and rep_table["win_rate"].sum() == 0:
+        st.warning("No closed outcomes are available for rep performance comparison in the selected period.")
+    else:
+        performance_fig = px.scatter(
+            rep_table,
+            x="attainment_pct",
+            y="win_rate",
+            size="closed_won_revenue",
+            color="segment_focus",
+            text="rep_name",
+            title="Quota Attainment vs Win Rate",
+            labels={
+                "attainment_pct": "Quota attainment (%)",
+                "win_rate": "Win rate (%)",
+                "closed_won_revenue": "Closed-won revenue",
+                "segment_focus": "Segment",
+            },
+            hover_data={"avg_deal_size": ":$,.0f", "sales_cycle_days": ":.0f"},
+        )
+        performance_fig.add_vline(
+            x=100,
+            line_dash="dash",
+            line_color="#64748b",
+            annotation_text="Quota target",
+            annotation_position="top",
+        )
+        performance_fig.update_traces(textposition="top center")
+        performance_fig.update_yaxes(range=[0, 105])
+        performance_fig.update_layout(height=500, margin=dict(l=20, r=20, t=60, b=20))
+        st.plotly_chart(performance_fig, use_container_width=True)
 
     top_rep = rep_table.sort_values("attainment_pct", ascending=False).head(1)
     if not top_rep.empty:

@@ -371,20 +371,36 @@ with tabs[3]:
         "Prioritized opportunities that need validation, escalation, or a clear next step.",
     )
 
-    risk_rep = (
-        filtered_open[filtered_open["ai_risk_level"] == "High"]
-        .groupby("rep_name", as_index=False)["deal_amount"]
-        .sum()
-        .sort_values("deal_amount", ascending=False)
-    )
+    action_queue = filtered_open[filtered_open["ai_risk_level"].isin(["High", "Medium"])].copy()
+    action_queue["risk_priority"] = action_queue["ai_risk_level"].map({"High": 0, "Medium": 1})
+    action_queue = action_queue.sort_values(["risk_priority", "deal_amount"], ascending=[True, False])
 
-    if risk_rep.empty:
-        st.warning("No high-risk open deals are available under the selected filters.")
-    else:
-        st.plotly_chart(
-            bar_chart(risk_rep, "rep_name", "deal_amount", title="High-Risk Pipeline by Owner"),
-            use_container_width=True,
-        )
+    no_recent_activity = filtered_open[
+        pd.to_datetime(filtered_open["last_activity_date"], errors="coerce")
+        < (pd.Timestamp.today().normalize() - pd.Timedelta(days=21))
+    ]
+
+    metric1, metric2, metric3, metric4 = st.columns(4)
+    metric1.metric(
+        "Deals Requiring Action",
+        f"{len(action_queue):,}",
+        help="Open opportunities rated medium or high risk.",
+    )
+    metric2.metric(
+        "Pipeline Requiring Action",
+        money(action_queue["deal_amount"].sum()),
+        help="Total value of medium- and high-risk open opportunities.",
+    )
+    metric3.metric(
+        "Past-Due Commit Deals",
+        f"{len(overdue_commit):,}",
+        help="Open Commit opportunities whose expected close date has passed.",
+    )
+    metric4.metric(
+        "No Activity for 21+ Days",
+        f"{len(no_recent_activity):,}",
+        help="Open opportunities without recorded activity in more than 21 days.",
+    )
 
     if not high_risk.empty:
         largest = high_risk.sort_values("deal_amount", ascending=False).iloc[0]
@@ -396,10 +412,7 @@ with tabs[3]:
     else:
         insight("No high-risk open deals are present in the selected filters.")
 
-    action_queue = filtered_open[filtered_open["ai_risk_level"].isin(["High", "Medium"])].copy()
-    action_queue["risk_priority"] = action_queue["ai_risk_level"].map({"High": 0, "Medium": 1})
-    action_queue = action_queue.sort_values(["risk_priority", "deal_amount"], ascending=[True, False])
-
+    st.markdown("**Prioritized Opportunities**")
     st.dataframe(
         action_queue[
             [

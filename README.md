@@ -2,7 +2,15 @@
 
 An interactive revenue operations portfolio project that analyzes synthetic CRM data for pipeline health, quota attainment, rep performance, forecast risk, and manager action prioritization.
 
-![Revenue Operations Command Center dashboard](assets/dashboard-overview.png)
+## Dashboard Preview
+
+### Executive Overview
+
+![Revenue Operations Command Center executive overview](assets/dashboard-overview.png)
+
+### Pipeline Health
+
+![Revenue Operations Command Center pipeline health](assets/pipeline-health.png)
 
 The dashboard is framed around a practical business problem: helping revenue leaders understand whether the team has enough quality pipeline, which deals create forecast risk, and where manager attention should be focused before pipeline and forecast reviews.
 

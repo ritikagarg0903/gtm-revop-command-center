@@ -27,7 +27,7 @@ QUOTAS_PATH = DATA_DIR / "rep_quotas.csv"
 
 
 st.set_page_config(
-    page_title="Sales Pipeline Command Center",
+    page_title="Revenue Operations Command Center",
     page_icon=":bar_chart:",
     layout="wide",
 )
@@ -80,7 +80,7 @@ def bar_chart(df: pd.DataFrame, x: str, y: str, color: str | None = None, title:
 
 deals, quotas = load_data()
 
-st.title("Sales Pipeline Command Center")
+st.title("Revenue Operations Command Center")
 st.caption(
     "A revenue operations view of pipeline coverage, deal health, rep performance, "
     "and the actions managers should prioritize."

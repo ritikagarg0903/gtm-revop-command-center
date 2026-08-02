@@ -105,3 +105,56 @@ def filter_deals(deals: pd.DataFrame, quarter: str, segments: list[str], reps: l
     if categories:
         filtered = filtered[filtered["forecast_category"].isin(categories)]
     return filtered
+
+
+def gtm_funnel(leads: pd.DataFrame) -> pd.DataFrame:
+    stages = [
+        ("Lead", "lead_created_date"),
+        ("MQL", "mql_date"),
+        ("SQL", "sql_date"),
+        ("Opportunity", "opportunity_date"),
+        ("Customer", "customer_date"),
+    ]
+    rows = []
+    previous_count = None
+    for stage, column in stages:
+        count = int(pd.to_datetime(leads[column], errors="coerce").notna().sum())
+        conversion = 100.0 if previous_count is None else (count / previous_count * 100 if previous_count else 0.0)
+        rows.append({"lifecycle_stage": stage, "record_count": count, "conversion_from_prior_pct": round(conversion, 1)})
+        previous_count = count
+    return pd.DataFrame(rows)
+
+
+def source_performance(deals: pd.DataFrame) -> pd.DataFrame:
+    result = (
+        deals.groupby("acquisition_source", as_index=False)
+        .agg(
+            pipeline_generated=("deal_amount", "sum"),
+            opportunity_count=("deal_id", "count"),
+            closed_won_revenue=("deal_amount", lambda values: values[deals.loc[values.index, "stage"].eq("Closed Won")].sum()),
+        )
+    )
+    result["revenue_conversion_pct"] = (
+        result["closed_won_revenue"] / result["pipeline_generated"] * 100
+    ).round(1)
+    return result.sort_values("pipeline_generated", ascending=False)
+
+
+def sla_summary(leads: pd.DataFrame, target_hours: int = 24) -> tuple[dict[str, float], pd.DataFrame]:
+    mqls = leads[pd.to_datetime(leads["mql_date"], errors="coerce").notna()].copy()
+    mqls["mql_at"] = pd.to_datetime(mqls["mql_date"], errors="coerce")
+    mqls["contact_at"] = pd.to_datetime(mqls["first_sales_contact_at"], errors="coerce")
+    mqls["response_hours"] = (mqls["contact_at"] - mqls["mql_at"]).dt.total_seconds() / 3600
+    mqls["sla_status"] = "Awaiting follow-up"
+    mqls.loc[mqls["response_hours"].notna() & (mqls["response_hours"] <= target_hours), "sla_status"] = "Within SLA"
+    mqls.loc[mqls["response_hours"] > target_hours, "sla_status"] = "SLA missed"
+
+    contacted = mqls[mqls["response_hours"].notna()]
+    summary = {
+        "mql_count": float(len(mqls)),
+        "within_sla_pct": round((contacted["response_hours"] <= target_hours).mean() * 100, 1) if not contacted.empty else 0.0,
+        "median_response_hours": round(float(contacted["response_hours"].median()), 1) if not contacted.empty else 0.0,
+        "awaiting_follow_up": float(mqls["contact_at"].isna().sum()),
+    }
+    return summary, mqls
+

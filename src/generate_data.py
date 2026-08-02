@@ -40,6 +40,9 @@ STAGE_PROBABILITIES = {
     "Closed Lost": 0.00,
 }
 
+ACQUISITION_SOURCES = ["Inbound", "Outbound", "Paid Search", "Events", "Partners", "Referrals"]
+SOURCE_WEIGHTS = [30, 25, 14, 10, 12, 9]
+
 RISK_NOTES = [
     "Budget frozen until next quarter; champion says timing is uncertain.",
     "Procurement review delayed and legal has not returned redlines.",
@@ -160,6 +163,7 @@ def generate_deals(row_count: int = 750) -> pd.DataFrame:
                 "account_name": account_name(index),
                 "rep_name": rep,
                 "segment": segment,
+                "acquisition_source": random.choices(ACQUISITION_SOURCES, weights=SOURCE_WEIGHTS)[0],
                 "stage": stage,
                 "forecast_category": category,
                 "deal_amount": amount,
@@ -175,6 +179,74 @@ def generate_deals(row_count: int = 750) -> pd.DataFrame:
                 "last_activity_date": last_activity.isoformat(),
                 "activity_count": random.randint(1, 42),
                 "notes": deal_note(stage),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def generate_leads(deals: pd.DataFrame, row_count: int = 1_800) -> pd.DataFrame:
+    """Create lifecycle records so GTM funnel and SLA metrics use real milestones."""
+    rows = []
+    today = date.today()
+
+    for index, deal in deals.reset_index(drop=True).iterrows():
+        opportunity_date = pd.to_datetime(deal["created_date"]).date()
+        lead_created = opportunity_date - timedelta(days=random.randint(7, 60))
+        mql_date = lead_created + timedelta(days=random.randint(1, 14))
+        response_hours = random.choices(
+            [random.randint(1, 24), random.randint(25, 72)], weights=[78, 22]
+        )[0]
+        first_contact = pd.Timestamp(mql_date) + pd.Timedelta(hours=response_hours)
+        sales_accepted = first_contact.date()
+        sql_date = sales_accepted + timedelta(days=random.randint(1, 8))
+
+        rows.append(
+            {
+                "lead_id": f"L-{index + 1:05d}",
+                "acquisition_source": deal["acquisition_source"],
+                "segment": deal["segment"],
+                "owner_name": deal["rep_name"],
+                "lead_created_date": lead_created.isoformat(),
+                "mql_date": mql_date.isoformat(),
+                "sales_accepted_date": sales_accepted.isoformat(),
+                "first_sales_contact_at": first_contact.isoformat(),
+                "sql_date": sql_date.isoformat(),
+                "opportunity_date": opportunity_date.isoformat(),
+                "opportunity_id": deal["deal_id"],
+                "customer_date": deal["actual_close_date"] if deal["stage"] == "Closed Won" else "",
+            }
+        )
+
+    for index in range(len(rows) + 1, row_count + 1):
+        lead_created = today - timedelta(days=random.randint(1, 300))
+        lifecycle = random.choices(["Lead", "MQL", "SQL"], weights=[44, 36, 20])[0]
+        mql_date = lead_created + timedelta(days=random.randint(1, 18)) if lifecycle != "Lead" else None
+        contacted = lifecycle == "SQL" or (lifecycle == "MQL" and random.random() < 0.72)
+        first_contact = None
+        sales_accepted = None
+        if mql_date and contacted:
+            response_hours = random.choices(
+                [random.randint(1, 24), random.randint(25, 96)], weights=[68, 32]
+            )[0]
+            first_contact = pd.Timestamp(mql_date) + pd.Timedelta(hours=response_hours)
+            sales_accepted = first_contact.date()
+        sql_date = first_contact.date() + timedelta(days=random.randint(1, 7)) if lifecycle == "SQL" else None
+
+        rows.append(
+            {
+                "lead_id": f"L-{index:05d}",
+                "acquisition_source": random.choices(ACQUISITION_SOURCES, weights=SOURCE_WEIGHTS)[0],
+                "segment": random.choices(list(SEGMENTS), weights=[43, 36, 21])[0],
+                "owner_name": random.choice(REPS) if contacted else "",
+                "lead_created_date": lead_created.isoformat(),
+                "mql_date": mql_date.isoformat() if mql_date else "",
+                "sales_accepted_date": sales_accepted.isoformat() if sales_accepted else "",
+                "first_sales_contact_at": first_contact.isoformat() if first_contact else "",
+                "sql_date": sql_date.isoformat() if sql_date else "",
+                "opportunity_date": "",
+                "opportunity_id": "",
+                "customer_date": "",
             }
         )
 
@@ -204,10 +276,13 @@ def generate_quotas() -> pd.DataFrame:
 def write_data(output_dir: Path | str = "data") -> None:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    generate_deals().to_csv(output_path / "synthetic_deals.csv", index=False)
+    deals = generate_deals()
+    deals.to_csv(output_path / "synthetic_deals.csv", index=False)
+    generate_leads(deals).to_csv(output_path / "synthetic_leads.csv", index=False)
     generate_quotas().to_csv(output_path / "rep_quotas.csv", index=False)
 
 
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parents[1]
     write_data(project_root / "data")
+

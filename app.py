@@ -10,10 +10,13 @@ from src.generate_data import write_data
 from src.metrics import (
     OPEN_STAGES,
     filter_deals,
+    gtm_funnel,
     open_deals,
     pipeline_coverage,
     quota_attainment,
     sales_cycle_days,
+    sla_summary,
+    source_performance,
     stale_deals,
     win_rate,
 )
@@ -24,6 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 DATA_DIR = PROJECT_ROOT / "data"
 DEALS_PATH = DATA_DIR / "synthetic_deals.csv"
 QUOTAS_PATH = DATA_DIR / "rep_quotas.csv"
+LEADS_PATH = DATA_DIR / "synthetic_leads.csv"
 
 
 st.set_page_config(
@@ -48,19 +52,35 @@ def current_quarter_label() -> str:
 
 
 @st.cache_data
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
-    if not DEALS_PATH.exists() or not QUOTAS_PATH.exists():
+def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    if not DEALS_PATH.exists() or not QUOTAS_PATH.exists() or not LEADS_PATH.exists():
         write_data(DATA_DIR)
 
     deals = pd.read_csv(DEALS_PATH)
     quotas = pd.read_csv(QUOTAS_PATH)
+    leads = pd.read_csv(LEADS_PATH)
 
     date_columns = ["created_date", "expected_close_date", "actual_close_date", "last_activity_date"]
     for column in date_columns:
         deals[column] = pd.to_datetime(deals[column], errors="coerce")
 
+    lead_date_columns = [
+        "lead_created_date",
+        "mql_date",
+        "sales_accepted_date",
+        "first_sales_contact_at",
+        "sql_date",
+        "opportunity_date",
+        "customer_date",
+    ]
+    for column in lead_date_columns:
+        leads[column] = pd.to_datetime(leads[column], errors="coerce")
+    leads["lead_quarter"] = leads["lead_created_date"].dt.year.astype(str) + " Q" + leads[
+        "lead_created_date"
+    ].dt.quarter.astype(str)
+
     deals = add_risk_scores(deals)
-    return deals, quotas
+    return deals, quotas, leads
 
 
 def section_header(title: str, caption: str) -> None:
@@ -78,7 +98,7 @@ def bar_chart(df: pd.DataFrame, x: str, y: str, color: str | None = None, title:
     return fig
 
 
-deals, quotas = load_data()
+deals, quotas, leads = load_data()
 
 st.title("Revenue Operations Command Center")
 st.caption(
@@ -105,6 +125,10 @@ if filtered.empty:
     )
     st.stop()
 
+filtered_leads = leads[leads["lead_quarter"] == selected_quarter].copy()
+if selected_segments:
+    filtered_leads = filtered_leads[filtered_leads["segment"].isin(selected_segments)]
+
 filtered_open = open_deals(filtered)
 attainment = quota_attainment(filtered, quotas, selected_quarter)
 if selected_segments:
@@ -117,6 +141,7 @@ high_risk = filtered_open[filtered_open["ai_risk_level"] == "High"]
 tabs = st.tabs(
     [
         "Executive Overview",
+        "GTM Funnel & Sources",
         "Pipeline Health",
         "Rep Performance",
         "Manager Action Queue",
@@ -224,6 +249,96 @@ with tabs[0]:
 
 with tabs[1]:
     section_header(
+        "GTM Funnel & Acquisition Sources",
+        "How demand moves from lead to customer, which sources create revenue, and whether sales follows up on MQLs quickly.",
+    )
+
+    funnel = gtm_funnel(filtered_leads)
+    source_results = source_performance(filtered)
+    sla, sla_details = sla_summary(filtered_leads, target_hours=24)
+
+    sla1, sla2, sla3, sla4 = st.columns(4)
+    sla1.metric("MQLs Created", f"{int(sla['mql_count']):,}")
+    sla2.metric(
+        "Contacted Within 24 Hours",
+        f"{sla['within_sla_pct']:.1f}%",
+        help="Share of contacted MQLs receiving their first sales touch within 24 hours.",
+    )
+    sla3.metric("Median Response Time", f"{sla['median_response_hours']:.1f} hrs")
+    sla4.metric("Awaiting Sales Follow-up", f"{int(sla['awaiting_follow_up']):,}")
+
+    left, right = st.columns(2)
+    with left:
+        funnel_fig = px.funnel(
+            funnel,
+            x="record_count",
+            y="lifecycle_stage",
+            title="Lead-to-Customer Funnel",
+            text="conversion_from_prior_pct",
+        )
+        funnel_fig.update_traces(texttemplate="%{value:,} Â· %{text:.1f}% from prior")
+        funnel_fig.update_layout(height=430, margin=dict(l=20, r=20, t=50, b=20))
+        st.plotly_chart(funnel_fig, use_container_width=True)
+    with right:
+        source_long = source_results.melt(
+            id_vars="acquisition_source",
+            value_vars=["pipeline_generated", "closed_won_revenue"],
+            var_name="revenue_type",
+            value_name="amount",
+        )
+        source_long["revenue_type"] = source_long["revenue_type"].map(
+            {"pipeline_generated": "Pipeline generated", "closed_won_revenue": "Closed-won revenue"}
+        )
+        st.plotly_chart(
+            bar_chart(
+                source_long,
+                "acquisition_source",
+                "amount",
+                color="revenue_type",
+                title="Pipeline and Revenue by Acquisition Source",
+            ),
+            use_container_width=True,
+        )
+
+    st.markdown("**Acquisition Source Performance**")
+    st.dataframe(
+        source_results,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "acquisition_source": "Acquisition source",
+            "pipeline_generated": st.column_config.NumberColumn("Pipeline generated", format="$%d"),
+            "closed_won_revenue": st.column_config.NumberColumn("Closed-won revenue", format="$%d"),
+            "opportunity_count": "Opportunities",
+            "revenue_conversion_pct": st.column_config.NumberColumn("Revenue conversion", format="%.1f%%"),
+        },
+    )
+
+    sla_exceptions = sla_details[sla_details["sla_status"] != "Within SLA"].copy()
+    st.markdown("**Marketing-to-Sales SLA Exceptions**")
+    st.dataframe(
+        sla_exceptions[
+            [
+                "lead_id",
+                "acquisition_source",
+                "segment",
+                "owner_name",
+                "mql_date",
+                "first_sales_contact_at",
+                "response_hours",
+                "sla_status",
+            ]
+        ].sort_values(["sla_status", "response_hours"], ascending=[True, False]),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "response_hours": st.column_config.NumberColumn("Response hours", format="%.1f"),
+            "sla_status": "SLA status",
+        },
+    )
+
+with tabs[2]:
+    section_header(
         "Pipeline Health",
         "Where pipeline dollars sit, how much is weighted, and which deals are aging.",
     )
@@ -303,7 +418,7 @@ with tabs[1]:
         },
     )
 
-with tabs[2]:
+with tabs[3]:
     section_header(
         "Rep Performance",
         "Quota attainment, revenue contribution, win rate, average deal size, and cycle length.",
@@ -365,7 +480,7 @@ with tabs[2]:
     ].copy()
     st.dataframe(display, use_container_width=True, hide_index=True)
 
-with tabs[3]:
+with tabs[4]:
     section_header(
         "Manager Action Queue",
         "Prioritized opportunities that need validation, escalation, or a clear next step.",

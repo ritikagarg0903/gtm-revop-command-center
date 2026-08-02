@@ -1,6 +1,6 @@
-# AI-Assisted Sales Pipeline Command Center
+# Sales Pipeline Command Center
 
-An interactive sales operations portfolio project that analyzes synthetic CRM data for pipeline health, quota attainment, forecast accuracy, rep performance, funnel stage concentration, and AI-assisted deal risk.
+An interactive revenue operations portfolio project that analyzes synthetic CRM data for pipeline health, quota attainment, rep performance, forecast risk, and manager action prioritization.
 
 The dashboard is framed around a practical business problem: helping revenue leaders understand whether the team has enough quality pipeline, which deals create forecast risk, and where manager attention should be focused before pipeline and forecast reviews.
 
@@ -10,26 +10,32 @@ Sales operations teams help leadership answer practical revenue questions:
 
 - Do we have enough pipeline to hit quota?
 - Which reps are on track or at risk?
-- Are committed forecast deals actually closing?
-- Where are deals stalling in the funnel?
+- Which Commit deals may be creating forecast risk?
+- Where are deals stalling in the pipeline?
 - Which open deals need manager attention before the forecast call?
 
 This dashboard turns synthetic CRM-style data into those business answers.
 
 ## Key Features
 
-- Executive overview with open pipeline, weighted pipeline, quota gap, and coverage ratio
-- Pipeline health by stage and segment
+- Executive overview with open pipeline, weighted pipeline, quota gap, coverage, and Commit risk
+- Pipeline health by stage, risk level, and stage age
 - Rep performance by quota attainment, win rate, deal size, and sales cycle
-- Forecast accuracy comparing Commit deals against actual closed-won revenue
-- Funnel snapshot analysis by sales stage
-- AI-assisted deal risk scoring using transparent rules
-- Recommended action for risky deals
+- Manager action queue prioritized by deal risk and pipeline value
+- Transparent deal risk scoring using notes, stage age, activity, close date, and forecast category
+- Recommended manager action for medium- and high-risk deals
 - Synthetic CRM data generator for safe public portfolio use
 
-## AI Approach
+## Dashboard Structure
 
-The "AI-assisted" layer uses explainable rules over:
+- **Executive Overview:** Are we on track, and how much Commit pipeline is exposed?
+- **Pipeline Health:** Is the open pipeline healthy, weighted appropriately, and progressing?
+- **Rep Performance:** Who is attaining quota, and where may coaching be required?
+- **Manager Action Queue:** Which opportunities need validation, escalation, or a dated next step?
+
+## Deal Risk Method
+
+The deal-risk layer uses transparent business rules over:
 
 - Deal notes
 - Sales stage
@@ -38,13 +44,9 @@ The "AI-assisted" layer uses explainable rules over:
 - Expected close date
 - Forecast category
 
-It produces:
+It produces a risk level, concise reason, and recommended manager action. The method is intentionally deterministic and auditable; it is not presented as a predictive machine-learning model.
 
-- Risk level: Low, Medium, or High
-- One-line reason
-- Recommended action
-
-This shows how unstructured sales notes can be converted into decision-useful insights that are easier to review, audit, and act on.
+This shows how unstructured sales notes and CRM activity signals can be converted into decision-useful insights that are easy to review and act on.
 
 ## Tech Stack
 
@@ -100,4 +102,6 @@ With access to Salesforce or HubSpot data, I would:
 - Add historical trend analysis by week and quarter
 - Add manager hierarchy and territory segmentation
 - Track forecast changes over time instead of only final Commit status
+- Calculate true stage conversion from opportunity stage history
 - Build scheduled weekly pipeline risk summaries for sales managers
+

@@ -1,4 +1,4 @@
-# Revenue Operations Command Center
+# GTM & Revenue Operations Command Center
 
 An interactive GTM and revenue operations portfolio project that analyzes synthetic CRM data for lead conversion, acquisition-source performance, marketing-to-sales handoffs, pipeline health, quota attainment, rep performance, forecast risk, and manager action prioritization.
 
@@ -6,11 +6,11 @@ An interactive GTM and revenue operations portfolio project that analyzes synthe
 
 ### Executive Overview
 
-![Revenue Operations Command Center executive overview](assets/dashboard-overview.png)
+![GTM and Revenue Operations Command Center executive overview](assets/dashboard-overview.png)
 
 ### Pipeline Health
 
-![Revenue Operations Command Center pipeline health](assets/pipeline-health.png)
+![GTM and Revenue Operations Command Center pipeline health](assets/pipeline-health.png)
 
 The dashboard is framed around a practical business problem: helping revenue leaders understand whether the team has enough quality pipeline, which deals create forecast risk, and where manager attention should be focused before pipeline and forecast reviews.
 
@@ -28,7 +28,7 @@ This dashboard turns synthetic CRM-style data into those business answers.
 
 ## Key Features
 
-- Executive overview with open pipeline, weighted pipeline, quota gap, coverage, and Commit risk
+- Executive overview with total pipeline, expected pipeline value, quota gap, coverage, and Commit risk
 - Lead-to-customer funnel using dated lifecycle milestones
 - Pipeline and closed-won revenue by acquisition source
 - Marketing-to-sales response SLA monitoring with an exception queue

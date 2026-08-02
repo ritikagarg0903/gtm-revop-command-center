@@ -1,6 +1,6 @@
 # Revenue Operations Command Center
 
-An interactive revenue operations portfolio project that analyzes synthetic CRM data for pipeline health, quota attainment, rep performance, forecast risk, and manager action prioritization.
+An interactive GTM and revenue operations portfolio project that analyzes synthetic CRM data for lead conversion, acquisition-source performance, marketing-to-sales handoffs, pipeline health, quota attainment, rep performance, forecast risk, and manager action prioritization.
 
 ## Dashboard Preview
 
@@ -29,6 +29,9 @@ This dashboard turns synthetic CRM-style data into those business answers.
 ## Key Features
 
 - Executive overview with open pipeline, weighted pipeline, quota gap, coverage, and Commit risk
+- Lead-to-customer funnel using dated lifecycle milestones
+- Pipeline and closed-won revenue by acquisition source
+- Marketing-to-sales response SLA monitoring with an exception queue
 - Pipeline health by stage, risk level, and stage age
 - Rep performance by quota attainment, win rate, deal size, and sales cycle
 - Manager action queue prioritized by deal risk and pipeline value
@@ -39,6 +42,7 @@ This dashboard turns synthetic CRM-style data into those business answers.
 ## Dashboard Structure
 
 - **Executive Overview:** Are we on track, and how much Commit pipeline is exposed?
+- **GTM Funnel & Sources:** How efficiently do leads convert, which sources produce revenue, and are MQLs contacted within SLA?
 - **Pipeline Health:** Is the open pipeline healthy, weighted appropriately, and progressing?
 - **Rep Performance:** Who is attaining quota, and where may coaching be required?
 - **Manager Action Queue:** Which opportunities need validation, escalation, or a dated next step?
@@ -75,6 +79,7 @@ sales-ops-command-center/
   .gitignore
   data/
     synthetic_deals.csv
+    synthetic_leads.csv
     rep_quotas.csv
   src/
     generate_data.py

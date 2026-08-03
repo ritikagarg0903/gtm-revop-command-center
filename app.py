@@ -7,6 +7,15 @@ import plotly.express as px
 import streamlit as st
 
 from src.generate_data import write_data
+from src.gtm_operations import (
+    REVIEW_REASONS,
+    REVIEW_STATUSES,
+    capacity_recommendation,
+    experiment_results,
+    review_quality,
+    route_leads,
+    score_prospects,
+)
 from src.metrics import (
     OPEN_STAGES,
     filter_deals,
@@ -28,6 +37,9 @@ DATA_DIR = PROJECT_ROOT / "data"
 DEALS_PATH = DATA_DIR / "synthetic_deals.csv"
 QUOTAS_PATH = DATA_DIR / "rep_quotas.csv"
 LEADS_PATH = DATA_DIR / "synthetic_leads.csv"
+PROSPECTS_PATH = DATA_DIR / "synthetic_prospects.csv"
+REP_CAPACITY_PATH = DATA_DIR / "rep_capacity.csv"
+OUTBOUND_EVENTS_PATH = DATA_DIR / "outbound_events.csv"
 
 
 st.set_page_config(
@@ -52,13 +64,24 @@ def current_quarter_label() -> str:
 
 
 @st.cache_data
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    if not DEALS_PATH.exists() or not QUOTAS_PATH.exists() or not LEADS_PATH.exists():
+def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    required_paths = [
+        DEALS_PATH,
+        QUOTAS_PATH,
+        LEADS_PATH,
+        PROSPECTS_PATH,
+        REP_CAPACITY_PATH,
+        OUTBOUND_EVENTS_PATH,
+    ]
+    if not all(path.exists() for path in required_paths):
         write_data(DATA_DIR)
 
     deals = pd.read_csv(DEALS_PATH)
     quotas = pd.read_csv(QUOTAS_PATH)
     leads = pd.read_csv(LEADS_PATH)
+    prospects = pd.read_csv(PROSPECTS_PATH)
+    rep_capacity = pd.read_csv(REP_CAPACITY_PATH)
+    outbound_events = pd.read_csv(OUTBOUND_EVENTS_PATH)
 
     date_columns = ["created_date", "expected_close_date", "actual_close_date", "last_activity_date"]
     for column in date_columns:
@@ -78,9 +101,11 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     leads["lead_quarter"] = leads["lead_created_date"].dt.year.astype(str) + " Q" + leads[
         "lead_created_date"
     ].dt.quarter.astype(str)
+    prospects["source_updated_at"] = pd.to_datetime(prospects["source_updated_at"], errors="coerce")
+    prospects["received_at"] = pd.to_datetime(prospects["received_at"], errors="coerce")
 
     deals = add_risk_scores(deals)
-    return deals, quotas, leads
+    return deals, quotas, leads, prospects, rep_capacity, outbound_events
 
 
 def section_header(title: str, caption: str) -> None:
@@ -98,7 +123,7 @@ def bar_chart(df: pd.DataFrame, x: str, y: str, color: str | None = None, title:
     return fig
 
 
-deals, quotas, leads = load_data()
+deals, quotas, leads, prospects, rep_capacity, outbound_events = load_data()
 
 st.title("GTM & Revenue Operations Command Center")
 st.caption(
@@ -142,6 +167,7 @@ tabs = st.tabs(
     [
         "Executive Overview",
         "GTM Funnel & Sources",
+        "GTM Operations",
         "Pipeline Health",
         "Rep Performance",
         "Manager Action Queue",
@@ -341,6 +367,251 @@ with tabs[1]:
 
 with tabs[2]:
     section_header(
+        "GTM Operations",
+        "Operational controls for enrichment, routing, scoring review, and outbound experimentation.",
+    )
+
+    routing_view, enrichment_view, scoring_view, experiment_view = st.tabs(
+        ["Lead Routing", "Prospecting & Enrichment", "Scoring Review", "Outbound Experiments"]
+    )
+
+    default_weights = {"fit": 40, "intent": 30, "signal_quality": 20, "data_confidence": 10}
+    default_scored = score_prospects(prospects, default_weights)
+    routed = route_leads(default_scored, rep_capacity)
+    routing_sla_breach = routed[
+        routed["routing_status"].eq("Unassigned")
+        & (routed["received_at"] < pd.Timestamp.now() - pd.Timedelta(hours=24))
+    ]
+
+    with routing_view:
+        route1, route2, route3, route4 = st.columns(4)
+        route1.metric("Assigned Leads", f"{routed['routing_status'].eq('Assigned').sum():,}")
+        route2.metric("Unassigned Queue", f"{routed['routing_status'].eq('Unassigned').sum():,}")
+        route3.metric("Routing SLA Breaches", f"{len(routing_sla_breach):,}")
+        route4.metric("Available Reps", f"{rep_capacity['available'].sum():,}")
+
+        st.markdown("**Unassigned and SLA-Breach Queue**")
+        st.dataframe(
+            routed[routed["routing_status"].eq("Unassigned")][
+                [
+                    "prospect_id",
+                    "account_name",
+                    "segment",
+                    "territory",
+                    "review_status",
+                    "received_at",
+                    "routing_reason",
+                ]
+            ].sort_values("received_at"),
+            use_container_width=True,
+            hide_index=True,
+            column_config={"routing_reason": "Why it was not assigned"},
+        )
+
+        st.markdown("**Recent Explainable Assignments**")
+        st.dataframe(
+            routed[routed["routing_status"].eq("Assigned")][
+                ["prospect_id", "account_name", "segment", "territory", "routed_rep", "routing_reason"]
+            ].head(30),
+            use_container_width=True,
+            hide_index=True,
+            column_config={"routing_reason": "Routing explanation"},
+        )
+
+        st.markdown("**Rep Capacity and Availability**")
+        st.dataframe(rep_capacity, use_container_width=True, hide_index=True)
+
+    with enrichment_view:
+        stale_cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
+        enrich1, enrich2, enrich3, enrich4 = st.columns(4)
+        enrich1.metric("Canonical Prospects", f"{len(prospects):,}")
+        enrich2.metric("Valid Email Rate", f"{prospects['email_valid'].mean() * 100:.1f}%")
+        enrich3.metric("Duplicates Blocked", f"{prospects['is_duplicate'].sum():,}")
+        enrich4.metric("Records Older Than 30 Days", f"{(prospects['source_updated_at'] < stale_cutoff).sum():,}")
+
+        provider_counts = prospects.groupby("source_provider", as_index=False).agg(
+            records=("prospect_id", "count"),
+            average_confidence=("source_confidence", "mean"),
+        )
+        provider_counts["average_confidence"] = (provider_counts["average_confidence"] * 100).round(1)
+        st.plotly_chart(
+            bar_chart(provider_counts, "source_provider", "records", title="Canonical Records by Provider"),
+            use_container_width=True,
+        )
+
+        st.markdown("**Canonical Account and Contact Records**")
+        enrichment_display = prospects.copy()
+        enrichment_display["source_confidence_pct"] = enrichment_display["source_confidence"] * 100
+        st.dataframe(
+            enrichment_display[
+                [
+                    "prospect_id",
+                    "account_name",
+                    "canonical_domain",
+                    "contact_name",
+                    "canonical_email",
+                    "email_valid",
+                    "domain_valid",
+                    "source_provider",
+                    "source_confidence_pct",
+                    "source_updated_at",
+                    "is_duplicate",
+                    "duplicate_of",
+                    "field_lineage",
+                ]
+            ].head(100),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "source_confidence_pct": st.column_config.NumberColumn("Source confidence", format="%.0f%%"),
+                "field_lineage": "Field-level source lineage",
+            },
+        )
+
+    with scoring_view:
+        st.caption("Adjust the component weights. Scores are recalculated immediately and normalized to 100%.")
+        weight1, weight2, weight3, weight4 = st.columns(4)
+        fit_weight = weight1.slider("Fit weight", 0, 100, 40, 5)
+        intent_weight = weight2.slider("Intent weight", 0, 100, 30, 5)
+        signal_weight = weight3.slider("Signal-quality weight", 0, 100, 20, 5)
+        confidence_weight = weight4.slider("Data-confidence weight", 0, 100, 10, 5)
+        scored = score_prospects(
+            prospects,
+            {
+                "fit": fit_weight,
+                "intent": intent_weight,
+                "signal_quality": signal_weight,
+                "data_confidence": confidence_weight,
+            },
+        )
+
+        score_summary = pd.DataFrame(
+            {
+                "score_component": ["Fit", "Intent", "Signal quality", "Data confidence", "Weighted total"],
+                "average_score": [
+                    scored["fit_score"].mean(),
+                    scored["intent_score"].mean(),
+                    scored["signal_quality_score"].mean(),
+                    scored["data_confidence_score"].mean(),
+                    scored["total_score"].mean(),
+                ],
+            }
+        )
+        st.plotly_chart(
+            bar_chart(score_summary, "score_component", "average_score", title="Average Score by Component"),
+            use_container_width=True,
+        )
+
+        st.markdown("**Human Review Gate**")
+        review_candidates = scored.sort_values("total_score", ascending=False).head(40)[
+            [
+                "prospect_id",
+                "account_name",
+                "segment",
+                "fit_score",
+                "intent_score",
+                "signal_quality_score",
+                "data_confidence_score",
+                "total_score",
+                "review_status",
+                "reviewer_reason",
+            ]
+        ]
+        edited_reviews = st.data_editor(
+            review_candidates,
+            use_container_width=True,
+            hide_index=True,
+            disabled=[
+                "prospect_id",
+                "account_name",
+                "segment",
+                "fit_score",
+                "intent_score",
+                "signal_quality_score",
+                "data_confidence_score",
+                "total_score",
+            ],
+            column_config={
+                "review_status": st.column_config.SelectboxColumn("Decision", options=REVIEW_STATUSES),
+                "reviewer_reason": st.column_config.SelectboxColumn("Reason code", options=REVIEW_REASONS),
+                "total_score": st.column_config.NumberColumn("Weighted score", format="%.1f"),
+            },
+            key="review_gate",
+        )
+        review_evaluation = scored.copy().set_index("prospect_id")
+        edited_index = edited_reviews.set_index("prospect_id")
+        review_evaluation.loc[edited_index.index, ["review_status", "reviewer_reason"]] = edited_index[
+            ["review_status", "reviewer_reason"]
+        ]
+        review_evaluation = review_evaluation.reset_index()
+        quality = review_quality(review_evaluation)
+        quality1, quality2, quality3 = st.columns(3)
+        quality1.metric("Reviewed Prospects", f"{int(quality['reviewed']):,}")
+        quality2.metric(
+            "False-Positive Rate",
+            f"{quality['false_positive_pct']:.1f}%",
+            help="Approved prospects that did not become opportunities in the synthetic outcome data.",
+        )
+        quality3.metric(
+            "False-Negative Rate",
+            f"{quality['false_negative_pct']:.1f}%",
+            help="Rejected prospects that later became opportunities in the synthetic outcome data.",
+        )
+
+    with experiment_view:
+        results = experiment_results(outbound_events)
+        recommendation = capacity_recommendation(results)
+        total_sent = int(results["sample_size"].sum())
+        total_delivered = int(results["delivered"].sum())
+        total_positive = int(results["positive_replies"].sum())
+        total_meetings = int(results["meetings"].sum())
+        exp1, exp2, exp3, exp4 = st.columns(4)
+        exp1.metric("Messages Sent", f"{total_sent:,}")
+        exp2.metric("Delivery Rate", f"{total_delivered / max(total_sent, 1) * 100:.1f}%")
+        exp3.metric("Positive Replies", f"{total_positive:,}")
+        exp4.metric("Meetings Booked", f"{total_meetings:,}")
+
+        results["ci_plus"] = results["ci_high_pct"] - results["positive_reply_rate_pct"]
+        results["ci_minus"] = results["positive_reply_rate_pct"] - results["ci_low_pct"]
+        experiment_fig = px.bar(
+            results,
+            x="segment",
+            y="positive_reply_rate_pct",
+            color="message_variant",
+            barmode="group",
+            error_y="ci_plus",
+            error_y_minus="ci_minus",
+            title="Positive-Reply Rate by Segment and Message Variant (95% CI)",
+            labels={
+                "positive_reply_rate_pct": "Positive-reply rate (%)",
+                "message_variant": "Message variant",
+                "segment": "Segment",
+            },
+        )
+        experiment_fig.update_layout(height=460, margin=dict(l=20, r=20, t=60, b=20))
+        st.plotly_chart(experiment_fig, use_container_width=True)
+        insight(recommendation)
+        st.dataframe(
+            results[
+                [
+                    "segment",
+                    "message_variant",
+                    "sample_size",
+                    "delivered",
+                    "replied",
+                    "positive_replies",
+                    "meetings",
+                    "positive_reply_rate_pct",
+                    "ci_low_pct",
+                    "ci_high_pct",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+with tabs[3]:
+    section_header(
         "Pipeline Health",
         "Where open pipeline sits, its expected value after stage probability, and which deals are aging.",
     )
@@ -428,7 +699,7 @@ with tabs[2]:
         },
     )
 
-with tabs[3]:
+with tabs[4]:
     section_header(
         "Rep Performance",
         "Quota attainment, revenue contribution, win rate, average deal size, and cycle length.",
@@ -503,7 +774,7 @@ with tabs[3]:
     ].copy()
     st.dataframe(display, use_container_width=True, hide_index=True)
 
-with tabs[4]:
+with tabs[5]:
     section_header(
         "Manager Action Queue",
         "Prioritized opportunities that need validation, escalation, or a clear next step.",

@@ -757,6 +757,15 @@ with tabs[3]:
     aged_value = aged["deal_amount"].sum()
     insight(f"{money(aged_value)} in open pipeline has been in its current stage for 45+ days.")
 
+    st.markdown("**Forecast Category Legend**")
+    st.caption(
+        "**Commit:** rep expects the deal to close in this period Â· "
+        "**Best Case:** could close, but meaningful uncertainty remains Â· "
+        "**Pipeline:** active deal not yet forecast-ready Â· "
+        "**Omitted:** excluded from the current forecast Â· "
+        "**Closed:** already won"
+    )
+
     friendly_dataframe(
         aged[
             [

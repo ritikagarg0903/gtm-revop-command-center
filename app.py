@@ -499,7 +499,7 @@ with tabs[2]:
         for column in ["valid_email_rate", "valid_domain_rate", "duplicate_rate", "fresh_record_rate", "average_confidence"]:
             provider_quality[column] = (provider_quality[column] * 100).round(1)
         st.markdown("**Provider Data Quality**")
-        st.caption("Compares validity, duplicate incidence, freshness, and source confidenceâ€”not just record volume.")
+        st.caption("Compares validity, duplicate incidence, freshness, and source confidence instead of volume alone.")
         friendly_dataframe(
             provider_quality,
             use_container_width=True,
@@ -509,20 +509,11 @@ with tabs[2]:
             ]},
         )
 
-        duplicate_queue = prospects[prospects["is_duplicate"]].copy()
-        st.markdown(f"**Duplicate Review Queue ({len(duplicate_queue):,})**")
-        st.caption("Potential duplicates are withheld from CRM delivery until the canonical record is confirmed.")
-        friendly_dataframe(
-            duplicate_queue[[
-                "prospect_id", "account_name", "canonical_domain", "canonical_email",
-                "source_provider", "duplicate_of",
-            ]],
-            use_container_width=True,
-            hide_index=True,
+        st.markdown("**Validated and Enriched Prospects Ready for CRM**")
+        st.caption(
+            "One clean record per prospect, enriched with company, contact, territory, engagement, "
+            "source-quality, and freshness data. Invalid and duplicate records are excluded."
         )
-
-        st.markdown("**Delivery-Ready Canonical Records**")
-        st.caption("Field-level lineage remains in the underlying audit data; it is omitted here because operators need a clean delivery view.")
         enrichment_display = prospects[
             ~prospects["is_duplicate"] & prospects["email_valid"] & prospects["domain_valid"]
         ].copy()
@@ -534,9 +525,14 @@ with tabs[2]:
                     "account_name",
                     "canonical_domain",
                     "contact_name",
+                    "job_title",
                     "canonical_email",
-                    "email_valid",
-                    "domain_valid",
+                    "segment",
+                    "territory",
+                    "employee_count",
+                    "website_visits_30d",
+                    "content_engagements_30d",
+                    "pricing_page_views_30d",
                     "source_provider",
                     "source_confidence_pct",
                     "source_updated_at",

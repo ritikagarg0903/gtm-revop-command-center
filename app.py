@@ -40,6 +40,7 @@ LEADS_PATH = DATA_DIR / "synthetic_leads.csv"
 PROSPECTS_PATH = DATA_DIR / "synthetic_prospects.csv"
 REP_CAPACITY_PATH = DATA_DIR / "rep_capacity.csv"
 OUTBOUND_EVENTS_PATH = DATA_DIR / "outbound_events.csv"
+DATA_SCHEMA_VERSION = 3
 
 
 st.set_page_config(
@@ -63,6 +64,7 @@ st.markdown(
         [data-testid="stCaptionContainer"] { margin-bottom: 0.25rem; }
         .stTabs [data-baseweb="tab-list"] { gap: 0.35rem; }
         .stTabs [data-baseweb="tab"] { padding-top: 0.45rem; padding-bottom: 0.45rem; }
+        .modebar { display: none !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -84,7 +86,8 @@ def current_quarter_label() -> str:
 
 
 @st.cache_data
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_data(schema_version: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    _ = schema_version  # Changing this value invalidates cached synthetic data after schema updates.
     paths = [DEALS_PATH, QUOTAS_PATH, LEADS_PATH, PROSPECTS_PATH, REP_CAPACITY_PATH, OUTBOUND_EVENTS_PATH]
     data_factory = None
     if not all(path.exists() for path in paths):
@@ -146,7 +149,13 @@ def bar_chart(
     height: int = 390,
 ):
     fig = px.bar(df, x=x, y=y, color=color, title=title, text_auto=".2s")
-    fig.update_layout(margin=dict(l=20, r=20, t=45, b=15), height=height)
+    fig.update_layout(
+        margin=dict(l=20, r=20, t=45, b=15),
+        height=height,
+        xaxis_title=friendly_column_name(x),
+        yaxis_title=friendly_column_name(y),
+        legend_title_text=friendly_column_name(color) if color else None,
+    )
     return fig
 
 
@@ -190,7 +199,13 @@ def friendly_data_editor(data: pd.DataFrame, **kwargs):
     return st.data_editor(data, **kwargs)
 
 
-deals, quotas, leads, prospects, rep_capacity, outbound_events = load_data()
+def show_chart(fig, **kwargs):
+    config = kwargs.pop("config", {}) or {}
+    config["displayModeBar"] = False
+    return st.plotly_chart(fig, config=config, **kwargs)
+
+
+deals, quotas, leads, prospects, rep_capacity, outbound_events = load_data(DATA_SCHEMA_VERSION)
 
 st.title("GTM & Revenue Operations Command Center")
 st.caption(
@@ -247,7 +262,7 @@ with tabs[0]:
         "Can the current pipeline close the remaining revenue gap, and how much of it needs attention?",
     )
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric(
         "Total Open Deals",
         money(coverage["open_pipeline"]),
@@ -264,24 +279,10 @@ with tabs[0]:
         help="Team quota minus revenue already closed won in the selected period.",
     )
     col4.metric(
-        "Open Pipeline per $1 Needed",
-        f"${coverage['pipeline_coverage']:.2f}",
-        help="Open pipeline divided by the revenue still needed to reach quota.",
-    )
-    col5.metric(
         "Pipeline at High Risk",
         money(high_risk["deal_amount"].sum()),
         help="Value of open opportunities flagged for immediate manager review.",
     )
-
-    if coverage["remaining_quota_gap"] > 0:
-        insight(
-            f"For every $1 of revenue still needed to reach quota, the team has "
-            f"${coverage['pipeline_coverage']:.2f} in open opportunities. After adjusting for the likelihood "
-            f"of each sales stage closing, that falls to ${coverage['weighted_coverage']:.2f}."
-        )
-    else:
-        insight("The selected team has already covered quota for this filtered period.")
 
     overdue_commit = filtered_open[
         (filtered_open["forecast_category"] == "Commit")
@@ -311,7 +312,7 @@ with tabs[0]:
             stage_long["pipeline_type"] = stage_long["pipeline_type"].map(
                 {"deal_amount": "Total open pipeline", "weighted_pipeline": "Expected pipeline value"}
             )
-            st.plotly_chart(
+            show_chart(
                 bar_chart(
                     stage_long,
                     "stage",
@@ -329,7 +330,7 @@ with tabs[0]:
                 "pipeline_value": [overdue_commit["deal_amount"].sum(), risky_commit["deal_amount"].sum()],
             }
         )
-        st.plotly_chart(
+        show_chart(
             bar_chart(
                 forecast_watch,
                 "risk_indicator",
@@ -378,12 +379,13 @@ with tabs[1]:
             y="lifecycle_stage",
             title="Lead-to-Customer Funnel",
             custom_data=["conversion_from_prior_pct"],
+            labels={"record_count": "Records", "lifecycle_stage": "Lifecycle Stage"},
         )
         funnel_fig.update_traces(
             texttemplate="%{value:,} records<br>%{customdata[0]:.1f}% of previous stage"
         )
         funnel_fig.update_layout(height=430, margin=dict(l=20, r=20, t=50, b=20))
-        st.plotly_chart(funnel_fig, use_container_width=True)
+        show_chart(funnel_fig, use_container_width=True)
     with right:
         source_long = source_results.melt(
             id_vars="acquisition_source",
@@ -394,7 +396,7 @@ with tabs[1]:
         source_long["revenue_type"] = source_long["revenue_type"].map(
             {"pipeline_generated": "Pipeline generated", "closed_won_revenue": "Closed-won revenue"}
         )
-        st.plotly_chart(
+        show_chart(
             bar_chart(
                 source_long,
                 "acquisition_source",
@@ -574,7 +576,7 @@ with tabs[2]:
                 ],
             }
         )
-        st.plotly_chart(
+        show_chart(
             bar_chart(score_summary, "score_component", "average_score", title="Average Score by Component"),
             use_container_width=True,
         )
@@ -666,7 +668,7 @@ with tabs[2]:
             },
         )
         experiment_fig.update_layout(height=460, margin=dict(l=20, r=20, t=60, b=20))
-        st.plotly_chart(experiment_fig, use_container_width=True)
+        show_chart(experiment_fig, use_container_width=True)
         insight(recommendation)
         friendly_dataframe(
             results[
@@ -714,7 +716,7 @@ with tabs[3]:
             expected_stage_pipeline = stage_pipeline.rename(
                 columns={"weighted_pipeline": "expected_pipeline_value"}
             )
-            st.plotly_chart(
+            show_chart(
                 bar_chart(
                     expected_stage_pipeline,
                     "stage",
@@ -727,7 +729,7 @@ with tabs[3]:
         if risk_summary.empty:
             st.warning("No open deals are available for risk review under the selected filters.")
         else:
-            st.plotly_chart(
+            show_chart(
                 bar_chart(risk_summary, "ai_risk_level", "pipeline_value", title="Open Pipeline by Risk Level"),
                 use_container_width=True,
             )
@@ -816,7 +818,7 @@ with tabs[4]:
         performance_fig.update_traces(textposition="top center")
         performance_fig.update_yaxes(range=[0, 105])
         performance_fig.update_layout(height=500, margin=dict(l=20, r=20, t=60, b=20))
-        st.plotly_chart(performance_fig, use_container_width=True)
+        show_chart(performance_fig, use_container_width=True)
 
     top_rep = rep_table.sort_values("attainment_pct", ascending=False).head(1)
     if not top_rep.empty:

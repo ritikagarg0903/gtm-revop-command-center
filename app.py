@@ -134,7 +134,8 @@ def load_data(schema_version: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataF
 
 
 def section_header(title: str, caption: str) -> None:
-    st.caption(caption)
+    if caption:
+        st.caption(caption)
 
 
 def insight(text: str) -> None:
@@ -494,21 +495,16 @@ with tabs[2]:
         for column in ["valid_email_rate", "valid_domain_rate", "duplicate_rate", "fresh_record_rate", "average_confidence"]:
             provider_quality[column] = (provider_quality[column] * 100).round(1)
         st.markdown("**Provider Data Quality**")
-        st.caption("Compares validity, duplicate incidence, freshness, and source confidence instead of volume alone.")
         friendly_dataframe(
             provider_quality,
             use_container_width=True,
             hide_index=True,
-            column_config={column: st.column_config.NumberColumn(format="%.1f%%") for column in [
+            column_config={column: st.column_config.NumberColumn(friendly_column_name(column), format="%.1f%%") for column in [
                 "valid_email_rate", "valid_domain_rate", "duplicate_rate", "fresh_record_rate", "average_confidence"
             ]},
         )
 
         st.markdown("**Validated and Enriched Prospects Ready for CRM**")
-        st.caption(
-            "One clean record per prospect, enriched with company, contact, territory, engagement, "
-            "source-quality, and freshness data. Invalid and duplicate records are excluded."
-        )
         enrichment_display = prospects[
             ~prospects["is_duplicate"] & prospects["email_valid"] & prospects["domain_valid"]
         ].copy()
@@ -840,7 +836,7 @@ with tabs[4]:
 with tabs[5]:
     section_header(
         "Manager Action Queue",
-        "Prioritized opportunities that need validation, escalation, or a clear next step.",
+        "",
     )
 
     action_queue = filtered_open[filtered_open["ai_risk_level"].isin(["High", "Medium"])].copy()

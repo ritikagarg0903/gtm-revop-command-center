@@ -758,13 +758,16 @@ with tabs[3]:
     insight(f"{money(aged_value)} in open pipeline has been in its current stage for 45+ days.")
 
     st.markdown("**Forecast Category Legend**")
-    st.caption(
-        "**Commit:** rep expects the deal to close in this period Â· "
-        "**Best Case:** could close, but meaningful uncertainty remains Â· "
-        "**Pipeline:** active deal not yet forecast-ready Â· "
-        "**Omitted:** excluded from the current forecast Â· "
-        "**Closed:** already won"
-    )
+    legend_columns = st.columns(5)
+    legend_items = [
+        ("Commit", "Expected to close this period"),
+        ("Best Case", "Could close, but uncertainty remains"),
+        ("Pipeline", "Active, but not forecast-ready"),
+        ("Omitted", "Excluded from the current forecast"),
+        ("Closed", "Already won"),
+    ]
+    for column, (category, definition) in zip(legend_columns, legend_items):
+        column.markdown(f"**{category}**  \n{definition}")
 
     friendly_dataframe(
         aged[

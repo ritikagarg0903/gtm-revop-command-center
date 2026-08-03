@@ -6,6 +6,13 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.gtm_operations import (
+    SyntheticCompanyFeedAdapter,
+    SyntheticYCAdapter,
+    add_canonical_and_duplicate_fields,
+    deterministic_variant,
+)
+
 
 random.seed(42)
 
@@ -273,12 +280,137 @@ def generate_quotas() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def generate_prospects(row_count: int = 500) -> pd.DataFrame:
+    provider_records = SyntheticYCAdapter().fetch(row_count // 2) + SyntheticCompanyFeedAdapter().fetch(
+        row_count - row_count // 2
+    )
+    territories = ["West", "Central", "East", "International"]
+    title_options = ["VP Operations", "Head of Revenue", "Director of Sales", "COO", "RevOps Manager"]
+    rows = []
+    now = pd.Timestamp.now().floor("h")
+
+    for index, provider in enumerate(provider_records, start=1):
+        domain = provider.domain
+        email_domain = domain
+        if index % 23 == 0:
+            domain = provider_records[index - 2].domain
+            email_domain = domain
+        email = f"buyer{index}@{email_domain}"
+        if index % 41 == 0:
+            email = f"buyer{index}-invalid"
+
+        segment = random.choices(list(SEGMENTS), weights=[43, 36, 21])[0]
+        source_updated = now - pd.Timedelta(days=random.randint(0, 90))
+        fit_score = random.randint(35, 98)
+        intent_score = random.randint(15, 95)
+        signal_quality = random.randint(35, 100)
+        data_confidence = round(
+            min(100, provider.source_confidence * 100 - random.randint(0, 18)), 1
+        )
+        composite = fit_score * 0.4 + intent_score * 0.3 + signal_quality * 0.2 + data_confidence * 0.1
+        review_status = random.choices(
+            ["Approved", "Pending", "Hold", "Rejected"],
+            weights=[50 if composite >= 70 else 20, 24, 12, 14 if composite >= 70 else 44],
+        )[0]
+        reason_map = {
+            "Approved": random.choice(["Meets ICP", "High intent"]),
+            "Pending": "Needs research",
+            "Hold": "No current need",
+            "Rejected": random.choice(["Outside ICP", "Bad data"]),
+        }
+        became_opportunity = random.random() < max(0.05, min(0.8, (composite - 25) / 100))
+
+        rows.append(
+            {
+                "prospect_id": f"P-{index:05d}",
+                "account_name": provider.account_name,
+                "contact_name": f"Contact {index:03d}",
+                "job_title": random.choice(title_options),
+                "domain": domain,
+                "email": email,
+                "segment": segment,
+                "territory": random.choice(territories),
+                "employee_count": random.randint(25, 5_000),
+                "source_provider": provider.source_provider,
+                "source_confidence": provider.source_confidence,
+                "source_updated_at": source_updated.isoformat(),
+                "field_lineage": (
+                    f"domain:{provider.source_provider}|email:Enrichment API|"
+                    f"segment:Company Feed|intent:Signal Provider"
+                ),
+                "fit_score": fit_score,
+                "intent_score": intent_score,
+                "signal_quality_score": signal_quality,
+                "data_confidence_score": data_confidence,
+                "review_status": review_status,
+                "reviewer_reason": reason_map[review_status],
+                "became_opportunity": became_opportunity,
+                "received_at": (now - pd.Timedelta(hours=random.randint(0, 72))).isoformat(),
+            }
+        )
+
+    return add_canonical_and_duplicate_fields(pd.DataFrame(rows))
+
+
+def generate_rep_capacity() -> pd.DataFrame:
+    territory_rules = ["West|International", "Central", "East", "West", "Central|East"]
+    segment_rules = ["SMB|Mid-Market", "Mid-Market|Enterprise", "SMB", "Enterprise", "SMB|Mid-Market|Enterprise"]
+    rows = []
+    for index, rep in enumerate(REPS):
+        max_capacity = random.randint(18, 35)
+        rows.append(
+            {
+                "rep_name": rep,
+                "territories": territory_rules[index % len(territory_rules)],
+                "segments": segment_rules[index % len(segment_rules)],
+                "max_capacity": max_capacity,
+                "current_load": random.randint(8, max_capacity),
+                "available": random.random() > 0.12,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def generate_outbound_events(prospects: pd.DataFrame, row_count: int = 700) -> pd.DataFrame:
+    variants = ["Pain-led", "Benchmark-led", "Outcome-led"]
+    segment_positive_rate = {"SMB": 0.055, "Mid-Market": 0.09, "Enterprise": 0.125}
+    variant_lift = {"Pain-led": 0.0, "Benchmark-led": 0.018, "Outcome-led": 0.032}
+    rows = []
+
+    sample = prospects[~prospects["is_duplicate"]].head(row_count)
+    for _, prospect in sample.iterrows():
+        variant = deterministic_variant(prospect["prospect_id"], variants)
+        delivered = random.random() < 0.94
+        reply_rate = 0.16 if delivered else 0
+        replied = delivered and random.random() < reply_rate
+        positive_rate = segment_positive_rate[prospect["segment"]] + variant_lift[variant]
+        positive = replied and random.random() < min(0.9, positive_rate / reply_rate)
+        meeting = positive and random.random() < 0.58
+        rows.append(
+            {
+                "prospect_id": prospect["prospect_id"],
+                "segment": prospect["segment"],
+                "message_variant": variant,
+                "sent": 1,
+                "delivered": int(delivered),
+                "replied": int(replied),
+                "positive_reply": int(positive),
+                "meeting": int(meeting),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def write_data(output_dir: Path | str = "data") -> None:
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     deals = generate_deals()
+    prospects = generate_prospects()
     deals.to_csv(output_path / "synthetic_deals.csv", index=False)
     generate_leads(deals).to_csv(output_path / "synthetic_leads.csv", index=False)
+    prospects.to_csv(output_path / "synthetic_prospects.csv", index=False)
+    generate_rep_capacity().to_csv(output_path / "rep_capacity.csv", index=False)
+    generate_outbound_events(prospects).to_csv(output_path / "outbound_events.csv", index=False)
     generate_quotas().to_csv(output_path / "rep_quotas.csv", index=False)
 
 

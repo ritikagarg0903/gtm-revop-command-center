@@ -503,18 +503,46 @@ with tabs[2]:
         enrich3.metric("Duplicates Blocked", f"{prospects['is_duplicate'].sum():,}")
         enrich4.metric("Records Older Than 30 Days", f"{(prospects['source_updated_at'] < stale_cutoff).sum():,}")
 
-        provider_counts = prospects.groupby("source_provider", as_index=False).agg(
+        provider_quality = prospects.assign(
+            fresh_record=prospects["source_updated_at"] >= stale_cutoff,
+        ).groupby("source_provider", as_index=False).agg(
             records=("prospect_id", "count"),
+            valid_email_rate=("email_valid", "mean"),
+            valid_domain_rate=("domain_valid", "mean"),
+            duplicate_rate=("is_duplicate", "mean"),
+            fresh_record_rate=("fresh_record", "mean"),
             average_confidence=("source_confidence", "mean"),
         )
-        provider_counts["average_confidence"] = (provider_counts["average_confidence"] * 100).round(1)
-        st.plotly_chart(
-            bar_chart(provider_counts, "source_provider", "records", title="Canonical Records by Provider"),
+        for column in ["valid_email_rate", "valid_domain_rate", "duplicate_rate", "fresh_record_rate", "average_confidence"]:
+            provider_quality[column] = (provider_quality[column] * 100).round(1)
+        st.markdown("**Provider Data Quality**")
+        st.caption("Compares validity, duplicate incidence, freshness, and source confidenceâ€”not just record volume.")
+        friendly_dataframe(
+            provider_quality,
             use_container_width=True,
+            hide_index=True,
+            column_config={column: st.column_config.NumberColumn(format="%.1f%%") for column in [
+                "valid_email_rate", "valid_domain_rate", "duplicate_rate", "fresh_record_rate", "average_confidence"
+            ]},
         )
 
-        st.markdown("**Canonical Account and Contact Records**")
-        enrichment_display = prospects.copy()
+        duplicate_queue = prospects[prospects["is_duplicate"]].copy()
+        st.markdown(f"**Duplicate Review Queue ({len(duplicate_queue):,})**")
+        st.caption("Potential duplicates are withheld from CRM delivery until the canonical record is confirmed.")
+        friendly_dataframe(
+            duplicate_queue[[
+                "prospect_id", "account_name", "canonical_domain", "canonical_email",
+                "source_provider", "duplicate_of",
+            ]],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("**Delivery-Ready Canonical Records**")
+        st.caption("Field-level lineage remains in the underlying audit data; it is omitted here because operators need a clean delivery view.")
+        enrichment_display = prospects[
+            ~prospects["is_duplicate"] & prospects["email_valid"] & prospects["domain_valid"]
+        ].copy()
         enrichment_display["source_confidence_pct"] = enrichment_display["source_confidence"] * 100
         friendly_dataframe(
             enrichment_display[
@@ -529,26 +557,22 @@ with tabs[2]:
                     "source_provider",
                     "source_confidence_pct",
                     "source_updated_at",
-                    "is_duplicate",
-                    "duplicate_of",
-                    "field_lineage",
                 ]
             ].head(100),
             use_container_width=True,
             hide_index=True,
             column_config={
                 "source_confidence_pct": st.column_config.NumberColumn("Source confidence", format="%.0f%%"),
-                "field_lineage": "Field-level source lineage",
             },
         )
 
     with scoring_view:
-        st.caption("Adjust the component weights. Scores are recalculated immediately and normalized to 100%.")
+        st.caption("Adjust the component weights. Scores are recalculated immediately and normalized to 100%. The attributes in parentheses are the score inputs.")
         weight1, weight2, weight3, weight4 = st.columns(4)
-        fit_weight = weight1.slider("Fit weight", 0, 100, 40, 5)
-        intent_weight = weight2.slider("Intent weight", 0, 100, 30, 5)
-        signal_weight = weight3.slider("Signal-quality weight", 0, 100, 20, 5)
-        confidence_weight = weight4.slider("Data-confidence weight", 0, 100, 10, 5)
+        fit_weight = weight1.slider("Fit weight (segment, company size, role)", 0, 100, 40, 5)
+        intent_weight = weight2.slider("Intent weight (visits, content, pricing views)", 0, 100, 30, 5)
+        signal_weight = weight3.slider("Signal-quality weight (recency, corroboration, source)", 0, 100, 20, 5)
+        confidence_weight = weight4.slider("Data-confidence weight (email, domain, freshness)", 0, 100, 10, 5)
         scored = score_prospects(
             prospects,
             {

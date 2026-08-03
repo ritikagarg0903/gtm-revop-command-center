@@ -53,7 +53,7 @@ st.markdown(
     """
     <style>
         .block-container {
-            padding-top: 1rem;
+            padding-top: 0.45rem;
             padding-bottom: 1rem;
             max-width: 1500px;
         }
@@ -62,8 +62,10 @@ st.markdown(
         h2, h3 { margin-top: 0.4rem; margin-bottom: 0.2rem; }
         [data-testid="stMetric"] { padding-top: 0.15rem; padding-bottom: 0.15rem; }
         [data-testid="stCaptionContainer"] { margin-bottom: 0.25rem; }
+        [data-testid="stCaptionContainer"] p { margin-bottom: 0; }
         .stTabs [data-baseweb="tab-list"] { gap: 0.35rem; }
         .stTabs [data-baseweb="tab"] { padding-top: 0.45rem; padding-bottom: 0.45rem; }
+        .stTabs { margin-top: -0.35rem; }
         .modebar { display: none !important; }
     </style>
     """,
@@ -132,7 +134,6 @@ def load_data(schema_version: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataF
 
 
 def section_header(title: str, caption: str) -> None:
-    st.subheader(title)
     st.caption(caption)
 
 
@@ -545,10 +546,10 @@ with tabs[2]:
     with scoring_view:
         st.caption("Adjust the component weights. Scores are recalculated immediately and normalized to 100%. The attributes in parentheses are the score inputs.")
         weight1, weight2, weight3, weight4 = st.columns(4)
-        fit_weight = weight1.slider("Fit weight (segment, company size, role)", 0, 100, 40, 5)
-        intent_weight = weight2.slider("Intent weight (visits, content, pricing views)", 0, 100, 30, 5)
-        signal_weight = weight3.slider("Signal-quality weight (recency, corroboration, source)", 0, 100, 20, 5)
-        confidence_weight = weight4.slider("Data-confidence weight (email, domain, freshness)", 0, 100, 10, 5)
+        fit_weight = weight1.slider("Fit (segment, size, role)", 0, 100, 40, 5)
+        intent_weight = weight2.slider("Intent (visits, content, pricing)", 0, 100, 30, 5)
+        signal_weight = weight3.slider("Signal quality (recency, corroboration, source)", 0, 100, 20, 5)
+        confidence_weight = weight4.slider("Data confidence (email, domain, freshness)", 0, 100, 10, 5)
         scored = score_prospects(
             prospects,
             {

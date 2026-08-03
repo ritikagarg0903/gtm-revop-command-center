@@ -1,71 +1,110 @@
 # GTM & Revenue Operations Command Center
 
-An interactive GTM and revenue operations portfolio project that analyzes synthetic CRM data for lead conversion, acquisition-source performance, marketing-to-sales handoffs, pipeline health, quota attainment, rep performance, forecast risk, and manager action prioritization.
+An interactive portfolio project that models an end-to-end go-to-market and revenue operations workflow using synthetic CRM, prospect, routing, pipeline, and outbound-event data.
+
+The dashboard connects demand generation to revenue execution: leads enter the funnel, prospect records are enriched and validated, approved prospects are scored and routed, outbound performance is measured, and pipeline risk is translated into manager actions.
 
 ## Dashboard Preview
 
 ### Executive Overview
 
-![GTM and Revenue Operations Command Center executive overview](assets/dashboard-overview.png)
+![Executive overview of the GTM and Revenue Operations Command Center](assets/executive-overview.png)
 
-### Pipeline Health
+### GTM Funnel & Sources
 
-![GTM and Revenue Operations Command Center pipeline health](assets/pipeline-health.png)
+![Lead funnel, sales response metrics, and acquisition-source performance](assets/gtm-funnel-sources.png)
 
-The dashboard is framed around a practical business problem: helping revenue leaders understand whether the team has enough quality pipeline, which deals create forecast risk, and where manager attention should be focused before pipeline and forecast reviews.
+### Rep Performance
 
-## Why This Project Exists
+![Quota attainment and win-rate comparison by sales representative](assets/rep-performance.png)
 
-Sales operations teams help leadership answer practical revenue questions:
+The displayed values are synthetic. In the example snapshot, the dashboard identifies a 10.1% lead-to-opportunity rate, 467 CRM-ready prospects, 98 assigned prospects, $15.9M in open pipeline, and $5.4M in high-risk pipeline.
 
-- Do we have enough pipeline to hit quota?
-- Which reps are on track or at risk?
-- Which Commit deals may be creating forecast risk?
-- Where are deals stalling in the pipeline?
-- Which open deals need manager attention before the forecast call?
+## Business Questions Addressed
 
-This dashboard turns synthetic CRM-style data into those business answers.
+- How efficiently does demand convert from lead to customer?
+- Which acquisition sources generate pipeline and closed-won revenue?
+- Is sales contacting marketing-qualified leads within the response SLA?
+- Which prospect records are valid, current, unique, and ready for CRM delivery?
+- Which prospects meet the scoring and human-review criteria for routing?
+- Which representatives are eligible and accepting new leads?
+- Which outbound messages perform best by segment?
+- Where is open pipeline concentrated, aging, or at risk?
+- Which representatives are attaining quota?
+- Which opportunities require manager action before the next forecast review?
+
+## Operating Workflow
+
+The GTM Operations workspace follows the order in which records should move through the system:
+
+1. **Prospecting & Enrichment** — standardize company and contact data, validate emails and domains, assess provider quality and freshness, and exclude duplicate records.
+2. **Scoring & Review** — calculate fit, intent, signal-quality, and data-confidence scores, then approve, reject, or hold each prospect with a reason code.
+3. **Lead Routing** — route only approved prospects using territory, segment, rep availability, remaining capacity, and round-robin assignment.
+4. **Outbound Strategy & Experiments** — assign message variants deterministically and compare delivery, replies, positive replies, meetings, sample sizes, and confidence intervals.
+
+Rejected, pending, and held prospects do not enter Lead Routing.
 
 ## Key Features
 
-- Executive overview with total pipeline, expected pipeline value, quota gap, coverage, and Commit risk
-- Lead-to-customer funnel using dated lifecycle milestones
+- End-to-end executive overview spanning demand conversion, CRM readiness, routing, pipeline, and deal risk
+- Lead-to-customer funnel based on dated lifecycle milestones
 - Pipeline and closed-won revenue by acquisition source
-- Marketing-to-sales response SLA monitoring with an exception queue
-- Explainable lead routing using territory, segment, round-robin, capacity, and availability rules
-- Prospect enrichment adapters with validation, canonical records, lineage, freshness, and deduplication
-- Configurable fit, intent, signal-quality, and data-confidence scoring with a human review gate
-- Deterministic outbound experiments with event tracking, confidence intervals, and capacity recommendations
-- Pipeline health by stage, risk level, and stage age
-- Rep performance by quota attainment, win rate, deal size, and sales cycle
-- Manager action queue prioritized by deal risk and pipeline value
-- Transparent deal risk scoring using notes, stage age, activity, close date, and forecast category
-- Recommended manager action for medium- and high-risk deals
-- Synthetic CRM data generator for safe public portfolio use
+- Marketing-to-sales response SLA summary
+- Provider-quality comparison using validity, duplicate rate, freshness, and source confidence
+- Validated and enriched prospect records ready for CRM delivery
+- Configurable fit, intent, signal-quality, and data-confidence scoring
+- Human approve, reject, and hold review gate with reason codes
+- Approved-only routing using territory, segment, rep availability, capacity, and round-robin rules
+- Outbound experiment reporting with 95% Wilson confidence intervals and allocation recommendations
+- Expected pipeline value and deal risk by sales stage
+- Rep performance by quota attainment, win rate, revenue, deal size, and sales-cycle length
+- Prioritized manager action queue for medium- and high-risk opportunities
+- Synthetic data generator for safe public demonstration
 
-## Dashboard Structure
+## Dashboard Sections
 
-- **Executive Overview:** Are we on track, and how much Commit pipeline is exposed?
-- **GTM Funnel & Sources:** How efficiently do leads convert, which sources produce revenue, and are MQLs contacted within SLA?
-- **GTM Operations:** How should prospects be enriched, reviewed, routed, and assigned to outbound experiments?
-- **Pipeline Health:** Is the open pipeline healthy, weighted appropriately, and progressing?
-- **Rep Performance:** Who is attaining quota, and where may coaching be required?
-- **Manager Action Queue:** Which opportunities need validation, escalation, or a dated next step?
+- **Executive Overview:** End-to-end health of demand conversion, prospect readiness, routing, revenue pipeline, and risk.
+- **GTM Funnel & Sources:** Funnel conversion, acquisition-source performance, and marketing-to-sales response time.
+- **GTM Operations:** Enrichment, scoring and review, approved-only routing, and outbound experimentation.
+- **Pipeline Health:** Expected pipeline value, stage aging, forecast categories, and deal-risk distribution.
+- **Rep Performance:** Quota attainment, win rate, revenue contribution, average deal size, and sales-cycle length.
+- **Manager Action Queue:** Opportunities prioritized for validation, escalation, or a dated next step.
+
+## Scoring Method
+
+Prospect scores are transparent and configurable:
+
+- **Fit:** segment, company size, and role
+- **Intent:** website visits, content engagement, and pricing-page views in the last 30 days
+- **Signal quality:** signal recency, corroboration, and source confidence
+- **Data confidence:** email validity, domain validity, and record freshness
+
+The component weights are normalized to 100%. A human review gate remains between scoring and routing so the score informs a decision rather than automatically activating every prospect.
+
+## Routing Criteria
+
+Approved prospects are evaluated in this order:
+
+1. Valid email and domain
+2. No duplicate record
+3. Territory match
+4. Segment match
+5. Representative accepting new leads
+6. Remaining representative capacity
+7. Round-robin assignment among eligible representatives
 
 ## Deal Risk Method
 
-The deal-risk layer uses transparent business rules over:
+Deal Risk Level is a deterministic, auditable rating based on:
 
-- Deal notes
+- Deal notes and identified blockers
 - Sales stage
-- Days in current stage
-- Last activity date
+- Days in the current stage
+- Recent activity
 - Expected close date
 - Forecast category
 
-It produces a risk level, concise reason, and recommended manager action. The method is intentionally deterministic and auditable; it is not presented as a predictive machine-learning model.
-
-This shows how unstructured sales notes and CRM activity signals can be converted into decision-useful insights that are easy to review and act on.
+The rules produce a Low, Medium, or High rating, a concise risk reason, and a blocker-specific manager action. This is a rules-based operations model, not a predictive machine-learning model.
 
 ## Tech Stack
 
@@ -81,7 +120,10 @@ sales-ops-command-center/
   app.py
   requirements.txt
   README.md
-  .gitignore
+  assets/
+    executive-overview.png
+    gtm-funnel-sources.png
+    rep-performance.png
   data/
     synthetic_deals.csv
     synthetic_leads.csv
@@ -110,33 +152,20 @@ Run the app:
 streamlit run app.py
 ```
 
-The first run creates synthetic data files in the `data/` folder if they do not already exist.
-
-## Advanced GTM Operations
-
-The GTM Operations workspace contains four auditable systems:
-
-- **Lead Routing:** Territory and segment eligibility, deterministic round-robin assignment, rep capacity and availability, duplicate blocking, routing explanations, and unassigned/SLA-breach queues.
-- **Prospecting & Enrichment:** Swappable provider adapters, canonical domains and emails, validation, duplicate detection, source confidence, freshness, and field-level lineage before downstream delivery.
-- **Scoring Review:** Independently weighted fit, intent, signal-quality, and data-confidence scores; human approve/reject/hold decisions; reason codes; and false-positive/false-negative monitoring.
-- **Outbound Experiments:** Deterministic segment/message assignment, delivery and reply events, positive replies, meetings, sample sizes, 95% Wilson confidence intervals, and explicit allocation recommendations.
-
-The included providers and outcomes are synthetic. The adapter and decision logic is structured so real company feeds, enrichment APIs, CRM records, and sequencing events can replace the generated inputs.
+The first run generates synthetic input data when local CSV files are not present.
 
 ## Synthetic Data Disclaimer
 
-All CRM data in this project is synthetic. No real customers, prospects, employer data, or CRM exports are used.
+All CRM, prospect, representative, and outbound-event data is synthetic. No real customer, employer, prospect, or CRM export data is used.
 
-## What I Would Do With Real CRM Data
+## Production Extensions
 
-With access to Salesforce or HubSpot data, I would:
+With access to production systems, the next steps would be to:
 
-- Connect to opportunity, account, owner, activity, and quota tables
-- Validate stage definitions and forecast categories with sales leadership
-- Reconcile closed-won revenue against finance-approved bookings data
-- Add historical trend analysis by week and quarter
-- Add manager hierarchy and territory segmentation
-- Track forecast changes over time instead of only final Commit status
-- Calculate true stage conversion from opportunity stage history
-- Build scheduled weekly pipeline risk summaries for sales managers
-
+- Connect Salesforce or HubSpot opportunities, accounts, contacts, owners, and activity history
+- Integrate enrichment, email-validation, and outbound-sequencing providers
+- Persist review decisions and routing history in an operational database
+- Validate lifecycle stages, forecast categories, quotas, territories, and SLA definitions with business owners
+- Reconcile closed-won revenue against finance-approved bookings
+- Track stage movement and forecast changes over time
+- Add role-based access, audit logs, alerts, and scheduled manager summaries

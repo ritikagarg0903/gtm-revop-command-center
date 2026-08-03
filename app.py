@@ -536,6 +536,9 @@ with tabs[2]:
             hide_index=True,
             column_config={
                 "source_confidence_pct": st.column_config.NumberColumn("Source confidence", format="%.0f%%"),
+                "website_visits_30d": "Website Visits (30 Days)",
+                "content_engagements_30d": "Content Engagements (30 Days)",
+                "pricing_page_views_30d": "Pricing Page Views (30 Days)",
             },
         )
 

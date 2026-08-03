@@ -1,19 +1,12 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from src.generate_data import (
-    generate_deals,
-    generate_leads,
-    generate_outbound_events,
-    generate_prospects,
-    generate_quotas,
-    generate_rep_capacity,
-)
 from src.gtm_operations import (
     REVIEW_REASONS,
     REVIEW_STATUSES,
@@ -72,15 +65,22 @@ def current_quarter_label() -> str:
 
 @st.cache_data
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    deals = pd.read_csv(DEALS_PATH) if DEALS_PATH.exists() else generate_deals()
-    quotas = pd.read_csv(QUOTAS_PATH) if QUOTAS_PATH.exists() else generate_quotas()
-    leads = pd.read_csv(LEADS_PATH) if LEADS_PATH.exists() else generate_leads(deals)
-    prospects = pd.read_csv(PROSPECTS_PATH) if PROSPECTS_PATH.exists() else generate_prospects()
-    rep_capacity = pd.read_csv(REP_CAPACITY_PATH) if REP_CAPACITY_PATH.exists() else generate_rep_capacity()
+    paths = [DEALS_PATH, QUOTAS_PATH, LEADS_PATH, PROSPECTS_PATH, REP_CAPACITY_PATH, OUTBOUND_EVENTS_PATH]
+    data_factory = None
+    if not all(path.exists() for path in paths):
+        data_factory = importlib.reload(importlib.import_module("src.generate_data"))
+
+    deals = pd.read_csv(DEALS_PATH) if DEALS_PATH.exists() else data_factory.generate_deals()
+    quotas = pd.read_csv(QUOTAS_PATH) if QUOTAS_PATH.exists() else data_factory.generate_quotas()
+    leads = pd.read_csv(LEADS_PATH) if LEADS_PATH.exists() else data_factory.generate_leads(deals)
+    prospects = pd.read_csv(PROSPECTS_PATH) if PROSPECTS_PATH.exists() else data_factory.generate_prospects()
+    rep_capacity = (
+        pd.read_csv(REP_CAPACITY_PATH) if REP_CAPACITY_PATH.exists() else data_factory.generate_rep_capacity()
+    )
     outbound_events = (
         pd.read_csv(OUTBOUND_EVENTS_PATH)
         if OUTBOUND_EVENTS_PATH.exists()
-        else generate_outbound_events(prospects)
+        else data_factory.generate_outbound_events(prospects)
     )
 
     date_columns = ["created_date", "expected_close_date", "actual_close_date", "last_activity_date"]

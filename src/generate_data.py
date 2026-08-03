@@ -301,11 +301,33 @@ def generate_prospects(row_count: int = 500) -> pd.DataFrame:
 
         segment = random.choices(list(SEGMENTS), weights=[43, 36, 21])[0]
         source_updated = now - pd.Timedelta(days=random.randint(0, 90))
-        fit_score = random.randint(35, 98)
-        intent_score = random.randint(15, 95)
-        signal_quality = random.randint(35, 100)
+        employee_count = random.randint(25, 5_000)
+        job_title = random.choice(title_options)
+        website_visits = random.randint(0, 12)
+        content_engagements = random.randint(0, 6)
+        pricing_page_views = random.randint(0, 4)
+        corroborated_signals = random.randint(1, 4)
+        signal_recency_days = random.randint(0, 60)
+
+        segment_fit = {"SMB": 48, "Mid-Market": 62, "Enterprise": 72}[segment]
+        size_fit = 14 if 200 <= employee_count <= 3_000 else 7
+        role_fit = 14 if job_title in {"Head of Revenue", "COO", "VP Operations"} else 9
+        fit_score = min(100, segment_fit + size_fit + role_fit)
+        intent_score = min(100, 12 + website_visits * 4 + content_engagements * 6 + pricing_page_views * 12)
+        signal_quality = min(
+            100,
+            round((100 - signal_recency_days) * 0.45 + corroborated_signals * 10 + provider.source_confidence * 25),
+        )
+        email_valid = "@" in email
         data_confidence = round(
-            min(100, provider.source_confidence * 100 - random.randint(0, 18)), 1
+            min(
+                100,
+                20 * email_valid
+                + 20
+                + provider.source_confidence * 42
+                + max(0, 18 - (now - source_updated).days * 0.2),
+            ),
+            1,
         )
         composite = fit_score * 0.4 + intent_score * 0.3 + signal_quality * 0.2 + data_confidence * 0.1
         review_status = random.choices(
@@ -325,12 +347,17 @@ def generate_prospects(row_count: int = 500) -> pd.DataFrame:
                 "prospect_id": f"P-{index:05d}",
                 "account_name": provider.account_name,
                 "contact_name": f"Contact {index:03d}",
-                "job_title": random.choice(title_options),
+                "job_title": job_title,
                 "domain": domain,
                 "email": email,
                 "segment": segment,
                 "territory": random.choice(territories),
-                "employee_count": random.randint(25, 5_000),
+                "employee_count": employee_count,
+                "website_visits_30d": website_visits,
+                "content_engagements_30d": content_engagements,
+                "pricing_page_views_30d": pricing_page_views,
+                "corroborated_signals": corroborated_signals,
+                "signal_recency_days": signal_recency_days,
                 "source_provider": provider.source_provider,
                 "source_confidence": provider.source_confidence,
                 "source_updated_at": source_updated.isoformat(),

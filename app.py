@@ -137,7 +137,7 @@ def section_header(title: str, caption: str) -> None:
 
 
 def insight(text: str) -> None:
-    st.info(text)
+    st.info(text.replace("$", r"\$"))
 
 
 def bar_chart(
@@ -244,6 +244,24 @@ coverage = pipeline_coverage(filtered, attainment)
 won = filtered[filtered["stage"] == "Closed Won"]
 closed = filtered[filtered["stage"].isin(["Closed Won", "Closed Lost"])]
 high_risk = filtered_open[filtered_open["ai_risk_level"] == "High"]
+overview_prospects = prospects.copy()
+if selected_segments:
+    overview_prospects = overview_prospects[overview_prospects["segment"].isin(selected_segments)].copy()
+overview_ready = overview_prospects[
+    ~overview_prospects["is_duplicate"]
+    & overview_prospects["email_valid"]
+    & overview_prospects["domain_valid"]
+]
+overview_scored = score_prospects(
+    overview_prospects,
+    {"fit": 40, "intent": 30, "signal_quality": 20, "data_confidence": 10},
+)
+overview_routed = route_leads(overview_scored, rep_capacity)
+overview_funnel = gtm_funnel(filtered_leads)
+overview_sla, _ = sla_summary(filtered_leads, target_hours=24)
+lead_to_opportunity_rate = (
+    filtered_leads["opportunity_date"].notna().mean() * 100 if len(filtered_leads) else 0
+)
 
 tabs = st.tabs(
     [
@@ -259,30 +277,15 @@ tabs = st.tabs(
 with tabs[0]:
     section_header(
         "Executive Overview",
-        "Can the current pipeline close the remaining revenue gap, and how much of it needs attention?",
+        "End-to-end health of demand conversion, prospect readiness, routing, revenue pipeline, and risk.",
     )
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric(
-        "Total Open Deals",
-        money(coverage["open_pipeline"]),
-        help="Total value of all opportunities that have not been won or lost.",
-    )
-    col2.metric(
-        "Expected Pipeline Value",
-        money(coverage["weighted_pipeline"]),
-        help="Open pipeline adjusted by each sales stage's probability of closing.",
-    )
-    col3.metric(
-        "Revenue Needed to Hit Quota",
-        money(coverage["remaining_quota_gap"]),
-        help="Team quota minus revenue already closed won in the selected period.",
-    )
-    col4.metric(
-        "Pipeline at High Risk",
-        money(high_risk["deal_amount"].sum()),
-        help="Value of open opportunities flagged for immediate manager review.",
-    )
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Lead-to-Opportunity Rate", f"{lead_to_opportunity_rate:.1f}%")
+    col2.metric("CRM-Ready Prospects", f"{len(overview_ready):,}")
+    col3.metric("Prospects Assigned", f"{overview_routed['routing_status'].eq('Assigned').sum():,}")
+    col4.metric("Open Pipeline", money(coverage["open_pipeline"]))
+    col5.metric("High-Risk Pipeline", money(high_risk["deal_amount"].sum()))
 
     overdue_commit = filtered_open[
         (filtered_open["forecast_category"] == "Commit")
@@ -295,58 +298,49 @@ with tabs[0]:
 
     left, right = st.columns(2)
     with left:
-        stage_pipeline = (
-            filtered_open.groupby("stage", as_index=False)[["deal_amount", "weighted_pipeline"]]
-            .sum()
-            .sort_values("stage", key=lambda values: values.map({stage: i for i, stage in enumerate(OPEN_STAGES)}))
+        show_chart(
+            bar_chart(
+                overview_funnel,
+                "lifecycle_stage",
+                "record_count",
+                title="Demand Funnel Snapshot",
+                height=300,
+            ),
+            use_container_width=True,
         )
-        if stage_pipeline.empty:
-            st.warning("No open pipeline matches the selected filters.")
-        else:
-            stage_long = stage_pipeline.melt(
-                id_vars="stage",
-                value_vars=["deal_amount", "weighted_pipeline"],
-                var_name="pipeline_type",
-                value_name="pipeline_value",
-            )
-            stage_long["pipeline_type"] = stage_long["pipeline_type"].map(
-                {"deal_amount": "Total open pipeline", "weighted_pipeline": "Expected pipeline value"}
-            )
-            show_chart(
-                bar_chart(
-                    stage_long,
-                    "stage",
-                    "pipeline_value",
-                    color="pipeline_type",
-                    title="Total vs Expected Pipeline Value by Stage",
-                    height=300,
-                ),
-                use_container_width=True,
-            )
     with right:
-        forecast_watch = pd.DataFrame(
+        operational_exceptions = pd.DataFrame(
             {
-                "risk_indicator": ["Past-due Commit", "At-risk Commit"],
-                "pipeline_value": [overdue_commit["deal_amount"].sum(), risky_commit["deal_amount"].sum()],
+                "exception_type": [
+                    "MQLs not contacted",
+                    "Prospects failing validation",
+                    "Unassigned prospects",
+                    "High-risk deals",
+                ],
+                "record_count": [
+                    int(overview_sla["awaiting_follow_up"]),
+                    len(overview_prospects) - len(overview_ready),
+                    int(overview_routed["routing_status"].eq("Unassigned").sum()),
+                    len(high_risk),
+                ],
             }
         )
         show_chart(
             bar_chart(
-                forecast_watch,
-                "risk_indicator",
-                "pipeline_value",
-                title="Commit Forecast Risk",
+                operational_exceptions,
+                "exception_type",
+                "record_count",
+                title="Operational Exceptions Requiring Attention",
                 height=300,
             ),
             use_container_width=True,
         )
 
-    if not overdue_commit.empty or not risky_commit.empty:
-        insight(
-            f"{money(overdue_commit['deal_amount'].sum())} in Commit is past its expected close date and "
-            f"{money(risky_commit['deal_amount'].sum())} is rated medium or high risk. "
-            "These deals should be revalidated before the next forecast call."
-        )
+    insight(
+        f"{len(overview_ready):,} prospects are validated for CRM delivery, "
+        f"{overview_routed['routing_status'].eq('Assigned').sum():,} are assigned, and "
+        f"{money(high_risk['deal_amount'].sum())} of open pipeline requires manager attention."
+    )
 
 with tabs[1]:
     section_header(
@@ -362,13 +356,11 @@ with tabs[1]:
     sla1.metric(
         "Contacted Within 24 Hours",
         f"{sla['within_sla_pct']:.1f}%",
-        help="Share of contacted MQLs receiving their first sales touch within 24 hours.",
     )
     sla2.metric("Median Response Time", f"{sla['median_response_hours']:.1f} hrs")
     sla3.metric(
         "MQLs Not Yet Contacted",
         f"{int(sla['awaiting_follow_up']):,}",
-        help="Marketing-qualified leads without a recorded first sales contact.",
     )
 
     left, right = st.columns(2)
@@ -629,12 +621,10 @@ with tabs[2]:
         quality2.metric(
             "False-Positive Rate",
             f"{quality['false_positive_pct']:.1f}%",
-            help="Approved prospects that did not become opportunities in the synthetic outcome data.",
         )
         quality3.metric(
             "False-Negative Rate",
             f"{quality['false_negative_pct']:.1f}%",
-            help="Rejected prospects that later became opportunities in the synthetic outcome data.",
         )
 
     with experiment_view:
@@ -862,22 +852,18 @@ with tabs[5]:
     metric1.metric(
         "Deals Requiring Action",
         f"{len(action_queue):,}",
-        help="Open opportunities rated medium or high risk.",
     )
     metric2.metric(
         "Pipeline Requiring Action",
         money(action_queue["deal_amount"].sum()),
-        help="Total value of medium- and high-risk open opportunities.",
     )
     metric3.metric(
         "Past-Due Commit Deals",
         f"{len(overdue_commit):,}",
-        help="Open Commit opportunities whose expected close date has passed.",
     )
     metric4.metric(
         "No Activity for 21+ Days",
         f"{len(no_recent_activity):,}",
-        help="Open opportunities without recorded activity in more than 21 days.",
     )
 
     if not high_risk.empty:

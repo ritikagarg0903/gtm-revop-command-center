@@ -12,7 +12,6 @@ from src.gtm_operations import (
     REVIEW_STATUSES,
     capacity_recommendation,
     experiment_results,
-    review_quality,
     route_leads,
     score_prospects,
 )
@@ -139,7 +138,8 @@ def section_header(title: str, caption: str) -> None:
 
 
 def insight(text: str) -> None:
-    st.info(text.replace("$", r"\$"))
+    escaped_text = text.replace("$", r"\$")
+    st.info(f"**Insight:** {escaped_text}")
 
 
 def bar_chart(
@@ -258,7 +258,8 @@ overview_scored = score_prospects(
     overview_prospects,
     {"fit": 40, "intent": 30, "signal_quality": 20, "data_confidence": 10},
 )
-overview_routed = route_leads(overview_scored, rep_capacity)
+overview_routing_candidates = overview_scored[overview_scored["review_status"].eq("Approved")].copy()
+overview_routed = route_leads(overview_routing_candidates, rep_capacity)
 overview_funnel = gtm_funnel(filtered_leads)
 overview_sla, _ = sla_summary(filtered_leads, target_hours=24)
 lead_to_opportunity_rate = (
@@ -437,7 +438,8 @@ with tabs[2]:
 
     default_weights = {"fit": 40, "intent": 30, "signal_quality": 20, "data_confidence": 10}
     default_scored = score_prospects(prospects, default_weights)
-    routed = route_leads(default_scored, rep_capacity)
+    routing_candidates = default_scored[default_scored["review_status"].eq("Approved")].copy()
+    routed = route_leads(routing_candidates, rep_capacity)
     routing_sla_breach = routed[
         routed["routing_status"].eq("Unassigned")
         & (routed["received_at"] < pd.Timestamp.now() - pd.Timedelta(hours=24))
@@ -448,7 +450,12 @@ with tabs[2]:
         route1.metric("Assigned Leads", f"{routed['routing_status'].eq('Assigned').sum():,}")
         route2.metric("Unassigned Queue", f"{routed['routing_status'].eq('Unassigned').sum():,}")
         route3.metric("Routing SLA Breaches", f"{len(routing_sla_breach):,}")
-        route4.metric("Available Reps", f"{rep_capacity['available'].sum():,}")
+        route4.metric("Reps Accepting New Leads", f"{rep_capacity['available'].sum():,}")
+
+        st.markdown(
+            "**Routing criteria:** Approved review decision → valid email and domain → no duplicate → "
+            "territory and segment match → rep accepting new leads → remaining capacity → round-robin assignment."
+        )
 
         st.markdown("**Unassigned Lead Queue**")
         friendly_dataframe(
@@ -458,7 +465,6 @@ with tabs[2]:
                     "account_name",
                     "segment",
                     "territory",
-                    "review_status",
                     "received_at",
                 ]
             ].sort_values("received_at"),
@@ -467,11 +473,16 @@ with tabs[2]:
         )
 
         st.markdown("**Rep Capacity and Availability**")
-        friendly_dataframe(rep_capacity, use_container_width=True, hide_index=True)
+        friendly_dataframe(
+            rep_capacity,
+            use_container_width=True,
+            hide_index=True,
+            column_config={"available": "Accepting New Leads"},
+        )
 
     with enrichment_view:
         st.info(
-            "This workflow takes raw company and contact records from prospecting providers, "
+            "**Process:** This workflow takes raw company and contact records from prospecting providers, "
             "standardizes email and domain fields, validates their quality, identifies duplicates, "
             "and produces clean records that are ready for CRM or outbound delivery."
         )
@@ -609,23 +620,6 @@ with tabs[2]:
             },
             key="review_gate",
         )
-        review_evaluation = scored.copy().set_index("prospect_id")
-        edited_index = edited_reviews.set_index("prospect_id")
-        review_evaluation.loc[edited_index.index, ["review_status", "reviewer_reason"]] = edited_index[
-            ["review_status", "reviewer_reason"]
-        ]
-        review_evaluation = review_evaluation.reset_index()
-        quality = review_quality(review_evaluation)
-        quality1, quality2, quality3 = st.columns(3)
-        quality1.metric("Reviewed Prospects", f"{int(quality['reviewed']):,}")
-        quality2.metric(
-            "False-Positive Rate",
-            f"{quality['false_positive_pct']:.1f}%",
-        )
-        quality3.metric(
-            "False-Negative Rate",
-            f"{quality['false_negative_pct']:.1f}%",
-        )
 
     with experiment_view:
         results = experiment_results(outbound_events)
@@ -693,9 +687,10 @@ with tabs[3]:
     risk_summary = (
         filtered_open.groupby("ai_risk_level", as_index=False)
         .agg(deal_count=("deal_id", "count"), pipeline_value=("deal_amount", "sum"))
+        .rename(columns={"ai_risk_level": "deal_risk_level"})
     )
     risk_order = {"Low": 0, "Medium": 1, "High": 2}
-    risk_summary["risk_order"] = risk_summary["ai_risk_level"].map(risk_order)
+    risk_summary["risk_order"] = risk_summary["deal_risk_level"].map(risk_order)
     risk_summary = risk_summary.sort_values("risk_order")
 
     left, right = st.columns(2)
@@ -719,8 +714,17 @@ with tabs[3]:
         if risk_summary.empty:
             st.warning("No open deals are available for risk review under the selected filters.")
         else:
+            st.info(
+                "**Definition:** Deal Risk Level is a rules-based rating of close risk using deal notes, "
+                "stage age, recent activity, expected close date, and forecast category."
+            )
             show_chart(
-                bar_chart(risk_summary, "ai_risk_level", "pipeline_value", title="Open Pipeline by Risk Level"),
+                bar_chart(
+                    risk_summary,
+                    "deal_risk_level",
+                    "pipeline_value",
+                    title="Open Pipeline by Deal Risk Level",
+                ),
                 use_container_width=True,
             )
 
@@ -731,11 +735,11 @@ with tabs[3]:
     st.markdown("**Forecast Category Legend**")
     legend_columns = st.columns(5)
     legend_items = [
-        ("Commit", "Expected to close this period"),
-        ("Best Case", "Could close, but uncertainty remains"),
-        ("Pipeline", "Active, but not forecast-ready"),
-        ("Omitted", "Excluded from the current forecast"),
-        ("Closed", "Already won"),
+        ("Pipeline", "Active deal; close evidence is incomplete"),
+        ("Best Case", "Could close this period; a material dependency remains"),
+        ("Commit", "Customer-confirmed next step supports closing this period"),
+        ("Closed", "Opportunity is already Closed Won"),
+        ("Omitted", "Excluded because it is lost or not forecastable"),
     ]
     for column, (category, definition) in zip(legend_columns, legend_items):
         column.markdown(f"**{category}**  \n{definition}")

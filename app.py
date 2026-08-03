@@ -430,8 +430,13 @@ with tabs[2]:
         "Operational controls for enrichment, routing, scoring review, and outbound experimentation.",
     )
 
-    routing_view, enrichment_view, scoring_view, experiment_view = st.tabs(
-        ["Lead Routing", "Prospecting & Enrichment", "Scoring Review", "Outbound Experiments"]
+    enrichment_view, scoring_view, routing_view, experiment_view = st.tabs(
+        [
+            "1. Prospecting & Enrichment",
+            "2. Scoring & Review",
+            "3. Lead Routing",
+            "4. Outbound Strategy & Experiments",
+        ]
     )
 
     default_weights = {"fit": 40, "intent": 30, "signal_quality": 20, "data_confidence": 10}
@@ -449,7 +454,7 @@ with tabs[2]:
         route3.metric("Routing SLA Breaches", f"{len(routing_sla_breach):,}")
         route4.metric("Available Reps", f"{rep_capacity['available'].sum():,}")
 
-        st.markdown("**Unassigned and SLA-Breach Queue**")
+        st.markdown("**Unassigned Lead Queue**")
         friendly_dataframe(
             routed[routed["routing_status"].eq("Unassigned")][
                 [
@@ -459,22 +464,10 @@ with tabs[2]:
                     "territory",
                     "review_status",
                     "received_at",
-                    "routing_reason",
                 ]
             ].sort_values("received_at"),
             use_container_width=True,
             hide_index=True,
-            column_config={"routing_reason": "Why it was not assigned"},
-        )
-
-        st.markdown("**Recent Explainable Assignments**")
-        friendly_dataframe(
-            routed[routed["routing_status"].eq("Assigned")][
-                ["prospect_id", "account_name", "segment", "territory", "routed_rep", "routing_reason"]
-            ].head(30),
-            use_container_width=True,
-            hide_index=True,
-            column_config={"routing_reason": "Routing explanation"},
         )
 
         st.markdown("**Rep Capacity and Availability**")

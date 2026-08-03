@@ -32,6 +32,10 @@ This dashboard turns synthetic CRM-style data into those business answers.
 - Lead-to-customer funnel using dated lifecycle milestones
 - Pipeline and closed-won revenue by acquisition source
 - Marketing-to-sales response SLA monitoring with an exception queue
+- Explainable lead routing using territory, segment, round-robin, capacity, and availability rules
+- Prospect enrichment adapters with validation, canonical records, lineage, freshness, and deduplication
+- Configurable fit, intent, signal-quality, and data-confidence scoring with a human review gate
+- Deterministic outbound experiments with event tracking, confidence intervals, and capacity recommendations
 - Pipeline health by stage, risk level, and stage age
 - Rep performance by quota attainment, win rate, deal size, and sales cycle
 - Manager action queue prioritized by deal risk and pipeline value
@@ -43,6 +47,7 @@ This dashboard turns synthetic CRM-style data into those business answers.
 
 - **Executive Overview:** Are we on track, and how much Commit pipeline is exposed?
 - **GTM Funnel & Sources:** How efficiently do leads convert, which sources produce revenue, and are MQLs contacted within SLA?
+- **GTM Operations:** How should prospects be enriched, reviewed, routed, and assigned to outbound experiments?
 - **Pipeline Health:** Is the open pipeline healthy, weighted appropriately, and progressing?
 - **Rep Performance:** Who is attaining quota, and where may coaching be required?
 - **Manager Action Queue:** Which opportunities need validation, escalation, or a dated next step?
@@ -80,9 +85,13 @@ sales-ops-command-center/
   data/
     synthetic_deals.csv
     synthetic_leads.csv
+    synthetic_prospects.csv
+    rep_capacity.csv
+    outbound_events.csv
     rep_quotas.csv
   src/
     generate_data.py
+    gtm_operations.py
     metrics.py
     risk_scoring.py
 ```
@@ -102,6 +111,17 @@ streamlit run app.py
 ```
 
 The first run creates synthetic data files in the `data/` folder if they do not already exist.
+
+## Advanced GTM Operations
+
+The GTM Operations workspace contains four auditable systems:
+
+- **Lead Routing:** Territory and segment eligibility, deterministic round-robin assignment, rep capacity and availability, duplicate blocking, routing explanations, and unassigned/SLA-breach queues.
+- **Prospecting & Enrichment:** Swappable provider adapters, canonical domains and emails, validation, duplicate detection, source confidence, freshness, and field-level lineage before downstream delivery.
+- **Scoring Review:** Independently weighted fit, intent, signal-quality, and data-confidence scores; human approve/reject/hold decisions; reason codes; and false-positive/false-negative monitoring.
+- **Outbound Experiments:** Deterministic segment/message assignment, delivery and reply events, positive replies, meetings, sample sizes, 95% Wilson confidence intervals, and explicit allocation recommendations.
+
+The included providers and outcomes are synthetic. The adapter and decision logic is structured so real company feeds, enrichment APIs, CRM records, and sequencing events can replace the generated inputs.
 
 ## Synthetic Data Disclaimer
 

@@ -150,6 +150,46 @@ def bar_chart(
     return fig
 
 
+def friendly_column_name(column: str) -> str:
+    abbreviations = {
+        "id": "ID",
+        "mql": "MQL",
+        "sql": "SQL",
+        "sla": "SLA",
+        "ai": "AI",
+        "ci": "CI",
+        "pct": "%",
+        "crm": "CRM",
+        "gtm": "GTM",
+        "url": "URL",
+    }
+    lower_case_words = {"and", "at", "by", "for", "from", "in", "of", "on", "to"}
+    words = []
+    for index, part in enumerate(column.split("_")):
+        lowered = part.lower()
+        if lowered in abbreviations:
+            words.append(abbreviations[lowered])
+        elif index > 0 and lowered in lower_case_words:
+            words.append(lowered)
+        else:
+            words.append(part.capitalize())
+    return " ".join(words)
+
+
+def friendly_dataframe(data: pd.DataFrame, **kwargs):
+    overrides = kwargs.pop("column_config", {}) or {}
+    defaults = {column: friendly_column_name(str(column)) for column in data.columns}
+    kwargs["column_config"] = {**defaults, **overrides}
+    return st.dataframe(data, **kwargs)
+
+
+def friendly_data_editor(data: pd.DataFrame, **kwargs):
+    overrides = kwargs.pop("column_config", {}) or {}
+    defaults = {column: friendly_column_name(str(column)) for column in data.columns}
+    kwargs["column_config"] = {**defaults, **overrides}
+    return st.data_editor(data, **kwargs)
+
+
 deals, quotas, leads, prospects, rep_capacity, outbound_events = load_data()
 
 st.title("GTM & Revenue Operations Command Center")
@@ -363,7 +403,7 @@ with tabs[1]:
         )
 
     st.markdown("**Acquisition Source Performance**")
-    st.dataframe(
+    friendly_dataframe(
         source_results,
         use_container_width=True,
         hide_index=True,
@@ -378,7 +418,7 @@ with tabs[1]:
 
     sla_exceptions = sla_details[sla_details["sla_status"] != "Within SLA"].copy()
     st.markdown("**Marketing-to-Sales SLA Exceptions**")
-    st.dataframe(
+    friendly_dataframe(
         sla_exceptions[
             [
                 "lead_id",
@@ -425,7 +465,7 @@ with tabs[2]:
         route4.metric("Available Reps", f"{rep_capacity['available'].sum():,}")
 
         st.markdown("**Unassigned and SLA-Breach Queue**")
-        st.dataframe(
+        friendly_dataframe(
             routed[routed["routing_status"].eq("Unassigned")][
                 [
                     "prospect_id",
@@ -443,7 +483,7 @@ with tabs[2]:
         )
 
         st.markdown("**Recent Explainable Assignments**")
-        st.dataframe(
+        friendly_dataframe(
             routed[routed["routing_status"].eq("Assigned")][
                 ["prospect_id", "account_name", "segment", "territory", "routed_rep", "routing_reason"]
             ].head(30),
@@ -453,7 +493,7 @@ with tabs[2]:
         )
 
         st.markdown("**Rep Capacity and Availability**")
-        st.dataframe(rep_capacity, use_container_width=True, hide_index=True)
+        friendly_dataframe(rep_capacity, use_container_width=True, hide_index=True)
 
     with enrichment_view:
         stale_cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
@@ -476,7 +516,7 @@ with tabs[2]:
         st.markdown("**Canonical Account and Contact Records**")
         enrichment_display = prospects.copy()
         enrichment_display["source_confidence_pct"] = enrichment_display["source_confidence"] * 100
-        st.dataframe(
+        friendly_dataframe(
             enrichment_display[
                 [
                     "prospect_id",
@@ -551,7 +591,7 @@ with tabs[2]:
                 "reviewer_reason",
             ]
         ]
-        edited_reviews = st.data_editor(
+        edited_reviews = friendly_data_editor(
             review_candidates,
             use_container_width=True,
             hide_index=True,
@@ -625,7 +665,7 @@ with tabs[2]:
         experiment_fig.update_layout(height=460, margin=dict(l=20, r=20, t=60, b=20))
         st.plotly_chart(experiment_fig, use_container_width=True)
         insight(recommendation)
-        st.dataframe(
+        friendly_dataframe(
             results[
                 [
                     "segment",
@@ -693,7 +733,7 @@ with tabs[3]:
     aged_value = aged["deal_amount"].sum()
     insight(f"{money(aged_value)} in open pipeline has been in its current stage for 45+ days.")
 
-    st.dataframe(
+    friendly_dataframe(
         aged[
             [
                 "deal_id",
@@ -709,28 +749,6 @@ with tabs[3]:
         ].head(20),
         use_container_width=True,
         hide_index=True,
-    )
-
-    st.markdown("**Largest High-Risk Opportunities**")
-    st.dataframe(
-        high_risk[
-            [
-                "deal_id",
-                "account_name",
-                "rep_name",
-                "stage",
-                "forecast_category",
-                "deal_amount",
-                "days_in_current_stage",
-                "ai_risk_reason",
-            ]
-        ].sort_values("deal_amount", ascending=False).head(15),
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "ai_risk_reason": "Risk reason",
-            "deal_amount": st.column_config.NumberColumn("Deal amount", format="$%d"),
-        },
     )
 
 with tabs[4]:
@@ -806,7 +824,7 @@ with tabs[4]:
             "sales_cycle_days",
         ]
     ].copy()
-    st.dataframe(display, use_container_width=True, hide_index=True)
+    friendly_dataframe(display, use_container_width=True, hide_index=True)
 
 with tabs[5]:
     section_header(
@@ -856,7 +874,7 @@ with tabs[5]:
         insight("No high-risk open deals are present in the selected filters.")
 
     st.markdown("**Prioritized Opportunities**")
-    st.dataframe(
+    friendly_dataframe(
         action_queue[
             [
                 "deal_id",

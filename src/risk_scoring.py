@@ -5,17 +5,16 @@ from datetime import date
 import pandas as pd
 
 
-HIGH_RISK_TERMS = {
-    "budget": "budget uncertainty",
-    "frozen": "budget freeze",
-    "competitor": "competitive evaluation",
-    "procurement": "procurement delay",
-    "legal": "legal review delay",
-    "no economic buyer": "missing economic buyer",
-    "no recent activity": "no recent activity",
-    "blocked": "blocked review",
-    "uncertain": "unclear timing",
-}
+HIGH_RISK_SIGNALS = [
+    (("budget", "frozen"), "budget availability is unresolved", 3),
+    (("competitor",), "competitive decision risk", 3),
+    (("procurement",), "procurement blocker", 3),
+    (("legal", "redline"), "legal or contracting blocker", 3),
+    (("no economic buyer",), "economic buyer is not confirmed", 3),
+    (("no recent activity",), "notes report no recent activity", 2),
+    (("blocked", "security review"), "required review is blocked", 2),
+    (("uncertain",), "decision timing is unconfirmed", 1),
+]
 
 POSITIVE_TERMS = {
     "champion": "champion identified",
@@ -47,9 +46,9 @@ def score_deal(row: pd.Series) -> dict[str, str]:
     score = 0
     reasons = []
 
-    for term, reason in HIGH_RISK_TERMS.items():
-        if term in notes:
-            score += 2
+    for terms, reason, points in HIGH_RISK_SIGNALS:
+        if any(term in notes for term in terms):
+            score += points
             reasons.append(reason)
 
     positive_hits = [reason for term, reason in POSITIVE_TERMS.items() if term in notes]
@@ -101,16 +100,22 @@ def _reason_sentence(level: str, reasons: list[str]) -> str:
 def _recommended_action(level: str, stage: str, forecast: str, reasons: list[str]) -> str:
     reason_text = " ".join(reasons).lower()
 
-    if level == "High" and forecast == "Commit":
-        return "Review before the forecast call and confirm whether this belongs in Commit."
+    if "budget" in reason_text:
+        return "Confirm the budget owner, funding source, and decision date; remove from Commit if unresolved."
+    if "competitive" in reason_text:
+        return "Confirm evaluation criteria, competitive position, and the customer's decision date."
     if "economic buyer" in reason_text or "champion" in reason_text:
-        return "Confirm decision maker, champion strength, and next mutual action."
-    if "procurement" in reason_text or "legal" in reason_text:
-        return "Ask rep for procurement/legal owner, blocker, and target signature date."
+        return "Secure an economic-buyer meeting and document the decision process and next mutual action."
+    if "procurement" in reason_text or "legal" in reason_text or "blocked" in reason_text:
+        return "Document the blocker owner, required deliverable, and target clearance or signature date."
+    if "past expected close" in reason_text:
+        return "Reset the close date and validate a customer-confirmed mutual close plan."
     if "activity" in reason_text:
-        return "Require a next step update or move the deal out of active forecast."
+        return "Require a dated customer next step or move the deal out of the active forecast."
     if stage == "Negotiation":
         return "Validate close plan, paper process, and remaining approval steps."
+    if level == "High" and forecast == "Commit":
+        return "Revalidate the evidence for Commit and assign an owner and date for the unresolved risk."
     if level == "Medium":
         return "Monitor in pipeline review and ask for a dated next step."
     return "Keep current, with no immediate manager escalation."
@@ -126,3 +131,4 @@ def add_risk_scores(deals: pd.DataFrame) -> pd.DataFrame:
     scored.loc[~open_mask, "ai_risk_reason"] = "Closed deal excluded from open-pipeline risk scoring."
     scored.loc[~open_mask, "recommended_action"] = "No open-pipeline action."
     return scored
+

@@ -33,16 +33,21 @@ The displayed values are synthetic. In the example snapshot, the dashboard ident
 - Which representatives are attaining quota?
 - Which opportunities require manager action before the next forecast review?
 
-## Operating Workflow
+## End-to-End Operating Model
 
-The GTM Operations workspace follows the order in which records should move through the system:
+The command center covers the full path from demand creation to revenue execution and manager follow-through:
 
-1. **Prospecting & Enrichment** — standardize company and contact data, validate emails and domains, assess provider quality and freshness, and exclude duplicate records.
-2. **Scoring & Review** — calculate fit, intent, signal-quality, and data-confidence scores, then approve, reject, or hold each prospect with a reason code.
-3. **Lead Routing** — route only approved prospects using territory, segment, rep availability, remaining capacity, and round-robin assignment.
-4. **Outbound Strategy & Experiments** — assign message variants deterministically and compare delivery, replies, positive replies, meetings, sample sizes, and confidence intervals.
+1. **Demand Generation & Funnel Performance** — track leads through MQL, SQL, opportunity, and customer stages; compare conversion rates and acquisition-source contribution.
+2. **Marketing-to-Sales Handoff** — monitor whether MQLs receive a first sales contact within the response SLA and identify leads still awaiting contact.
+3. **Prospecting & Enrichment** — standardize company and contact data, validate emails and domains, assess provider quality and freshness, and exclude duplicate records.
+4. **Scoring & Human Review** — calculate fit, intent, signal-quality, and data-confidence scores, then approve, reject, or hold each prospect with a reason code.
+5. **Lead Routing** — route only approved prospects using territory, segment, rep availability, remaining capacity, and round-robin assignment. Rejected, pending, and held prospects do not enter this stage.
+6. **Outbound Strategy & Experiments** — assign message variants deterministically and compare delivery, replies, positive replies, meetings, sample sizes, and confidence intervals.
+7. **Pipeline & Forecast Management** — monitor expected pipeline value, stage aging, forecast categories, past-due Commit deals, and rules-based Deal Risk Level.
+8. **Rep Performance Management** — compare quota attainment, win rate, closed-won revenue, average deal size, and sales-cycle length.
+9. **Manager Action & Feedback** — prioritize medium- and high-risk opportunities, assign blocker-specific next steps, and feed outcomes back into scoring, routing, and forecast reviews.
 
-Rejected, pending, and held prospects do not enter Lead Routing.
+The **Executive Overview** summarizes the health of this complete operating model across demand conversion, CRM readiness, assignment, pipeline, and risk.
 
 ## Key Features
 

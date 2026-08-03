@@ -693,6 +693,11 @@ with tabs[3]:
     risk_summary["risk_order"] = risk_summary["deal_risk_level"].map(risk_order)
     risk_summary = risk_summary.sort_values("risk_order")
 
+    st.markdown(
+        "**Deal Risk Level criteria:** Deal notes, stage age, recent activity, expected close date, "
+        "and forecast category."
+    )
+
     left, right = st.columns(2)
     with left:
         if stage_pipeline.empty:
@@ -714,10 +719,6 @@ with tabs[3]:
         if risk_summary.empty:
             st.warning("No open deals are available for risk review under the selected filters.")
         else:
-            st.info(
-                "**Definition:** Deal Risk Level is a rules-based rating of close risk using deal notes, "
-                "stage age, recent activity, expected close date, and forecast category."
-            )
             show_chart(
                 bar_chart(
                     risk_summary,

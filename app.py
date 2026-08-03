@@ -48,6 +48,26 @@ st.set_page_config(
     layout="wide",
 )
 
+st.markdown(
+    """
+    <style>
+        .block-container {
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+            max-width: 1500px;
+        }
+        [data-testid="stHeader"] { height: 2.25rem; }
+        h1 { margin-top: 0; margin-bottom: 0.15rem; line-height: 1.15; }
+        h2, h3 { margin-top: 0.4rem; margin-bottom: 0.2rem; }
+        [data-testid="stMetric"] { padding-top: 0.15rem; padding-bottom: 0.15rem; }
+        [data-testid="stCaptionContainer"] { margin-bottom: 0.25rem; }
+        .stTabs [data-baseweb="tab-list"] { gap: 0.35rem; }
+        .stTabs [data-baseweb="tab"] { padding-top: 0.45rem; padding-bottom: 0.45rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 def money(value: float) -> str:
     if value >= 1_000_000:
@@ -117,9 +137,16 @@ def insight(text: str) -> None:
     st.info(text)
 
 
-def bar_chart(df: pd.DataFrame, x: str, y: str, color: str | None = None, title: str | None = None):
+def bar_chart(
+    df: pd.DataFrame,
+    x: str,
+    y: str,
+    color: str | None = None,
+    title: str | None = None,
+    height: int = 390,
+):
     fig = px.bar(df, x=x, y=y, color=color, title=title, text_auto=".2s")
-    fig.update_layout(margin=dict(l=20, r=20, t=50, b=20), height=390)
+    fig.update_layout(margin=dict(l=20, r=20, t=45, b=15), height=height)
     return fig
 
 
@@ -251,6 +278,7 @@ with tabs[0]:
                     "pipeline_value",
                     color="pipeline_type",
                     title="Total vs Expected Pipeline Value by Stage",
+                    height=300,
                 ),
                 use_container_width=True,
             )
@@ -262,7 +290,13 @@ with tabs[0]:
             }
         )
         st.plotly_chart(
-            bar_chart(forecast_watch, "risk_indicator", "pipeline_value", title="Commit Forecast Risk"),
+            bar_chart(
+                forecast_watch,
+                "risk_indicator",
+                "pipeline_value",
+                title="Commit Forecast Risk",
+                height=300,
+            ),
             use_container_width=True,
         )
 

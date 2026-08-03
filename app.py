@@ -355,17 +355,20 @@ with tabs[1]:
 
     funnel = gtm_funnel(filtered_leads)
     source_results = source_performance(filtered)
-    sla, sla_details = sla_summary(filtered_leads, target_hours=24)
+    sla, _ = sla_summary(filtered_leads, target_hours=24)
 
-    sla1, sla2, sla3, sla4 = st.columns(4)
-    sla1.metric("MQLs Created", f"{int(sla['mql_count']):,}")
-    sla2.metric(
+    sla1, sla2, sla3 = st.columns(3)
+    sla1.metric(
         "Contacted Within 24 Hours",
         f"{sla['within_sla_pct']:.1f}%",
         help="Share of contacted MQLs receiving their first sales touch within 24 hours.",
     )
-    sla3.metric("Median Response Time", f"{sla['median_response_hours']:.1f} hrs")
-    sla4.metric("Awaiting Sales Follow-up", f"{int(sla['awaiting_follow_up']):,}")
+    sla2.metric("Median Response Time", f"{sla['median_response_hours']:.1f} hrs")
+    sla3.metric(
+        "MQLs Not Yet Contacted",
+        f"{int(sla['awaiting_follow_up']):,}",
+        help="Marketing-qualified leads without a recorded first sales contact.",
+    )
 
     left, right = st.columns(2)
     with left:
@@ -416,27 +419,9 @@ with tabs[1]:
         },
     )
 
-    sla_exceptions = sla_details[sla_details["sla_status"] != "Within SLA"].copy()
-    st.markdown("**Marketing-to-Sales SLA Exceptions**")
-    friendly_dataframe(
-        sla_exceptions[
-            [
-                "lead_id",
-                "acquisition_source",
-                "segment",
-                "owner_name",
-                "mql_date",
-                "first_sales_contact_at",
-                "response_hours",
-                "sla_status",
-            ]
-        ].sort_values(["sla_status", "response_hours"], ascending=[True, False]),
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "response_hours": st.column_config.NumberColumn("Response hours", format="%.1f"),
-            "sla_status": "SLA status",
-        },
+    st.caption(
+        "This section summarizes marketing-to-sales response performance. "
+        "Record-level assignment exceptions are managed in GTM Operations > Lead Routing."
     )
 
 with tabs[2]:
@@ -496,6 +481,11 @@ with tabs[2]:
         friendly_dataframe(rep_capacity, use_container_width=True, hide_index=True)
 
     with enrichment_view:
+        st.info(
+            "This workflow takes raw company and contact records from prospecting providers, "
+            "standardizes email and domain fields, validates their quality, identifies duplicates, "
+            "and produces clean records that are ready for CRM or outbound delivery."
+        )
         stale_cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
         enrich1, enrich2, enrich3, enrich4 = st.columns(4)
         enrich1.metric("Canonical Prospects", f"{len(prospects):,}")

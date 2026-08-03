@@ -52,12 +52,12 @@ st.markdown(
     """
     <style>
         .block-container {
-            padding-top: 0.45rem;
+            padding-top: 0.85rem;
             padding-bottom: 1rem;
             max-width: 1500px;
         }
         [data-testid="stHeader"] { height: 2.25rem; }
-        h1 { margin-top: 0; margin-bottom: 0.15rem; line-height: 1.15; }
+        h1 { margin-top: 0; margin-bottom: 0.15rem; padding-top: 0.2rem; line-height: 1.3; }
         h2, h3 { margin-top: 0.4rem; margin-bottom: 0.2rem; }
         [data-testid="stMetric"] { padding-top: 0.15rem; padding-bottom: 0.15rem; }
         [data-testid="stCaptionContainer"] { margin-bottom: 0.25rem; }

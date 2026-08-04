@@ -4,6 +4,8 @@ An interactive portfolio project that models an end-to-end go-to-market and reve
 
 The dashboard connects demand generation to revenue execution: leads enter the funnel, prospect records are enriched and validated, approved prospects are scored and routed, outbound performance is measured, and pipeline risk is translated into manager actions.
 
+**[Open the Live Dashboard](https://gtm-revops-command-center.streamlit.app/)**
+
 ## Dashboard Preview
 
 ### Executive Overview

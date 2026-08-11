@@ -10,8 +10,6 @@ import streamlit as st
 from src.gtm_operations import (
     REVIEW_REASONS,
     REVIEW_STATUSES,
-    capacity_recommendation,
-    experiment_results,
     route_leads,
     score_prospects,
 )
@@ -22,11 +20,9 @@ from src.metrics import (
     open_deals,
     pipeline_coverage,
     quota_attainment,
-    sales_cycle_days,
     sla_summary,
     source_performance,
     stale_deals,
-    win_rate,
 )
 from src.risk_scoring import add_risk_scores
 
@@ -38,7 +34,6 @@ QUOTAS_PATH = DATA_DIR / "rep_quotas.csv"
 LEADS_PATH = DATA_DIR / "synthetic_leads.csv"
 PROSPECTS_PATH = DATA_DIR / "synthetic_prospects.csv"
 REP_CAPACITY_PATH = DATA_DIR / "rep_capacity.csv"
-OUTBOUND_EVENTS_PATH = DATA_DIR / "outbound_events.csv"
 DATA_SCHEMA_VERSION = 3
 
 
@@ -87,9 +82,9 @@ def current_quarter_label() -> str:
 
 
 @st.cache_data
-def load_data(schema_version: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def load_data(schema_version: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     _ = schema_version  # Changing this value invalidates cached synthetic data after schema updates.
-    paths = [DEALS_PATH, QUOTAS_PATH, LEADS_PATH, PROSPECTS_PATH, REP_CAPACITY_PATH, OUTBOUND_EVENTS_PATH]
+    paths = [DEALS_PATH, QUOTAS_PATH, LEADS_PATH, PROSPECTS_PATH, REP_CAPACITY_PATH]
     data_factory = None
     if not all(path.exists() for path in paths):
         data_factory = importlib.reload(importlib.import_module("src.generate_data"))
@@ -101,12 +96,6 @@ def load_data(schema_version: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataF
     rep_capacity = (
         pd.read_csv(REP_CAPACITY_PATH) if REP_CAPACITY_PATH.exists() else data_factory.generate_rep_capacity()
     )
-    outbound_events = (
-        pd.read_csv(OUTBOUND_EVENTS_PATH)
-        if OUTBOUND_EVENTS_PATH.exists()
-        else data_factory.generate_outbound_events(prospects)
-    )
-
     date_columns = ["created_date", "expected_close_date", "actual_close_date", "last_activity_date"]
     for column in date_columns:
         deals[column] = pd.to_datetime(deals[column], errors="coerce")
@@ -129,7 +118,7 @@ def load_data(schema_version: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataF
     prospects["received_at"] = pd.to_datetime(prospects["received_at"], errors="coerce")
 
     deals = add_risk_scores(deals)
-    return deals, quotas, leads, prospects, rep_capacity, outbound_events
+    return deals, quotas, leads, prospects, rep_capacity
 
 
 def section_header(title: str, caption: str) -> None:
@@ -207,12 +196,12 @@ def show_chart(fig, **kwargs):
     return st.plotly_chart(fig, config=config, **kwargs)
 
 
-deals, quotas, leads, prospects, rep_capacity, outbound_events = load_data(DATA_SCHEMA_VERSION)
+deals, quotas, leads, prospects, rep_capacity = load_data(DATA_SCHEMA_VERSION)
 
 st.title("GTM & Revenue Operations Command Center")
 st.caption(
     "An end-to-end view of demand conversion, acquisition sources, pipeline health, "
-    "sales performance, and manager actions."
+    "prospect readiness, and lead routing."
 )
 
 with st.sidebar:
@@ -243,9 +232,6 @@ attainment = quota_attainment(filtered, quotas, selected_quarter)
 if selected_segments:
     attainment = attainment[attainment["segment_focus"].isin(selected_segments)].copy()
 coverage = pipeline_coverage(filtered, attainment)
-won = filtered[filtered["stage"] == "Closed Won"]
-closed = filtered[filtered["stage"].isin(["Closed Won", "Closed Lost"])]
-high_risk = filtered_open[filtered_open["ai_risk_level"] == "High"]
 overview_prospects = prospects.copy()
 if selected_segments:
     overview_prospects = overview_prospects[overview_prospects["segment"].isin(selected_segments)].copy()
@@ -272,32 +258,20 @@ tabs = st.tabs(
         "GTM Funnel & Sources",
         "GTM Operations",
         "Pipeline Health",
-        "Rep Performance",
-        "Manager Action Queue",
     ]
 )
 
 with tabs[0]:
     section_header(
         "Executive Overview",
-        "End-to-end health of demand conversion, prospect readiness, routing, revenue pipeline, and risk.",
+        "End-to-end health of demand conversion, prospect readiness, routing, and revenue pipeline.",
     )
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Lead-to-Opportunity Rate", f"{lead_to_opportunity_rate:.1f}%")
     col2.metric("CRM-Ready Prospects", f"{len(overview_ready):,}")
     col3.metric("Prospects Assigned", f"{overview_routed['routing_status'].eq('Assigned').sum():,}")
     col4.metric("Open Pipeline", money(coverage["open_pipeline"]))
-    col5.metric("High-Risk Pipeline", money(high_risk["deal_amount"].sum()))
-
-    overdue_commit = filtered_open[
-        (filtered_open["forecast_category"] == "Commit")
-        & (pd.to_datetime(filtered_open["expected_close_date"], errors="coerce") < pd.Timestamp.today())
-    ]
-    risky_commit = filtered_open[
-        (filtered_open["forecast_category"] == "Commit")
-        & (filtered_open["ai_risk_level"].isin(["High", "Medium"]))
-    ]
 
     left, right = st.columns(2)
     with left:
@@ -318,13 +292,11 @@ with tabs[0]:
                     "MQLs not contacted",
                     "Prospects failing validation",
                     "Unassigned prospects",
-                    "High-risk deals",
                 ],
                 "record_count": [
                     int(overview_sla["awaiting_follow_up"]),
                     len(overview_prospects) - len(overview_ready),
                     int(overview_routed["routing_status"].eq("Unassigned").sum()),
-                    len(high_risk),
                 ],
             }
         )
@@ -342,7 +314,7 @@ with tabs[0]:
     insight(
         f"{len(overview_ready):,} prospects are validated for CRM delivery, "
         f"{overview_routed['routing_status'].eq('Assigned').sum():,} are assigned, and "
-        f"{money(high_risk['deal_amount'].sum())} of open pipeline requires manager attention."
+        f"open pipeline totals {money(coverage['open_pipeline'])}."
     )
 
 with tabs[1]:
@@ -424,15 +396,14 @@ with tabs[1]:
 with tabs[2]:
     section_header(
         "GTM Operations",
-        "Operational controls for enrichment, routing, scoring review, and outbound experimentation.",
+        "Operational controls for enrichment, scoring review, and routing.",
     )
 
-    enrichment_view, scoring_view, routing_view, experiment_view = st.tabs(
+    enrichment_view, scoring_view, routing_view = st.tabs(
         [
             "1. Prospecting & Enrichment",
             "2. Scoring & Review",
             "3. Lead Routing",
-            "4. Outbound Strategy & Experiments",
         ]
     )
 
@@ -484,7 +455,7 @@ with tabs[2]:
         st.info(
             "**Process:** This workflow takes raw company and contact records from prospecting providers, "
             "standardizes email and domain fields, validates their quality, identifies duplicates, "
-            "and produces clean records that are ready for CRM or outbound delivery."
+            "and produces clean records that are ready for CRM delivery."
         )
         stale_cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
         enrich1, enrich2, enrich3, enrich4 = st.columns(4)
@@ -621,58 +592,6 @@ with tabs[2]:
             key="review_gate",
         )
 
-    with experiment_view:
-        results = experiment_results(outbound_events)
-        recommendation = capacity_recommendation(results)
-        total_sent = int(results["sample_size"].sum())
-        total_delivered = int(results["delivered"].sum())
-        total_positive = int(results["positive_replies"].sum())
-        total_meetings = int(results["meetings"].sum())
-        exp1, exp2, exp3, exp4 = st.columns(4)
-        exp1.metric("Messages Sent", f"{total_sent:,}")
-        exp2.metric("Delivery Rate", f"{total_delivered / max(total_sent, 1) * 100:.1f}%")
-        exp3.metric("Positive Replies", f"{total_positive:,}")
-        exp4.metric("Meetings Booked", f"{total_meetings:,}")
-
-        results["ci_plus"] = results["ci_high_pct"] - results["positive_reply_rate_pct"]
-        results["ci_minus"] = results["positive_reply_rate_pct"] - results["ci_low_pct"]
-        experiment_fig = px.bar(
-            results,
-            x="segment",
-            y="positive_reply_rate_pct",
-            color="message_variant",
-            barmode="group",
-            error_y="ci_plus",
-            error_y_minus="ci_minus",
-            title="Positive-Reply Rate by Segment and Message Variant (95% CI)",
-            labels={
-                "positive_reply_rate_pct": "Positive-reply rate (%)",
-                "message_variant": "Message variant",
-                "segment": "Segment",
-            },
-        )
-        experiment_fig.update_layout(height=460, margin=dict(l=20, r=20, t=60, b=20))
-        show_chart(experiment_fig, use_container_width=True)
-        insight(recommendation)
-        friendly_dataframe(
-            results[
-                [
-                    "segment",
-                    "message_variant",
-                    "sample_size",
-                    "delivered",
-                    "replied",
-                    "positive_replies",
-                    "meetings",
-                    "positive_reply_rate_pct",
-                    "ci_low_pct",
-                    "ci_high_pct",
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
-
 with tabs[3]:
     section_header(
         "Pipeline Health",
@@ -697,7 +616,6 @@ with tabs[3]:
         "**Deal Risk Level criteria:** Deal notes, stage age, recent activity, expected close date, "
         "and forecast category."
     )
-
     left, right = st.columns(2)
     with left:
         if stage_pipeline.empty:
@@ -761,151 +679,5 @@ with tabs[3]:
         ].head(20),
         use_container_width=True,
         hide_index=True,
-    )
-
-with tabs[4]:
-    section_header(
-        "Rep Performance",
-        "Quota attainment, revenue contribution, win rate, average deal size, and cycle length.",
-    )
-
-    rep_attainment = attainment.copy()
-    rep_win = win_rate(filtered, "rep_name")
-    avg_deal = won.groupby("rep_name", as_index=False)["deal_amount"].mean().rename(columns={"deal_amount": "avg_deal_size"})
-
-    cycles = closed.copy()
-    cycles["sales_cycle_days"] = sales_cycle_days(cycles)
-    avg_cycle = cycles.groupby("rep_name", as_index=False)["sales_cycle_days"].mean()
-
-    rep_table = (
-        rep_attainment.merge(rep_win, on="rep_name", how="left")
-        .merge(avg_deal, on="rep_name", how="left")
-        .merge(avg_cycle, on="rep_name", how="left")
-        .fillna(0)
-    )
-
-    if rep_table["attainment_pct"].sum() == 0 and rep_table["win_rate"].sum() == 0:
-        st.warning("No closed outcomes are available for rep performance comparison in the selected period.")
-    else:
-        performance_fig = px.scatter(
-            rep_table,
-            x="attainment_pct",
-            y="win_rate",
-            size="closed_won_revenue",
-            color="segment_focus",
-            text="rep_name",
-            title="Quota Attainment vs Win Rate",
-            labels={
-                "attainment_pct": "Quota attainment (%)",
-                "win_rate": "Win rate (%)",
-                "closed_won_revenue": "Closed-won revenue",
-                "segment_focus": "Segment",
-            },
-            hover_data={"avg_deal_size": ":$,.0f", "sales_cycle_days": ":.0f"},
-        )
-        performance_fig.add_vline(
-            x=100,
-            line_dash="dash",
-            line_color="#64748b",
-            annotation_text="Quota target",
-            annotation_position="top",
-        )
-        performance_fig.update_traces(textposition="top center")
-        performance_fig.update_yaxes(range=[0, 105])
-        performance_fig.update_layout(height=500, margin=dict(l=20, r=20, t=60, b=20))
-        show_chart(performance_fig, use_container_width=True)
-
-    top_rep = rep_table.sort_values("attainment_pct", ascending=False).head(1)
-    if not top_rep.empty:
-        row = top_rep.iloc[0]
-        insight(
-            f"{row['rep_name']} leads quota attainment at {row['attainment_pct']:.1f}%, "
-            f"with {row['win_rate']:.1f}% win rate in the selected period."
-        )
-
-    display = rep_table[
-        [
-            "rep_name",
-            "segment_focus",
-            "quota",
-            "closed_won_revenue",
-            "attainment_pct",
-            "quota_gap",
-            "win_rate",
-            "avg_deal_size",
-            "sales_cycle_days",
-        ]
-    ].copy()
-    friendly_dataframe(display, use_container_width=True, hide_index=True)
-
-with tabs[5]:
-    section_header(
-        "Manager Action Queue",
-        "",
-    )
-
-    action_queue = filtered_open[filtered_open["ai_risk_level"].isin(["High", "Medium"])].copy()
-    action_queue["risk_priority"] = action_queue["ai_risk_level"].map({"High": 0, "Medium": 1})
-    action_queue = action_queue.sort_values(["risk_priority", "deal_amount"], ascending=[True, False])
-
-    no_recent_activity = filtered_open[
-        pd.to_datetime(filtered_open["last_activity_date"], errors="coerce")
-        < (pd.Timestamp.today().normalize() - pd.Timedelta(days=21))
-    ]
-
-    metric1, metric2, metric3, metric4 = st.columns(4)
-    metric1.metric(
-        "Deals Requiring Action",
-        f"{len(action_queue):,}",
-    )
-    metric2.metric(
-        "Pipeline Requiring Action",
-        money(action_queue["deal_amount"].sum()),
-    )
-    metric3.metric(
-        "Past-Due Commit Deals",
-        f"{len(overdue_commit):,}",
-    )
-    metric4.metric(
-        "No Activity for 21+ Days",
-        f"{len(no_recent_activity):,}",
-    )
-
-    if not high_risk.empty:
-        largest = high_risk.sort_values("deal_amount", ascending=False).iloc[0]
-        insight(
-            f"{money(high_risk['deal_amount'].sum())} in open pipeline is high risk. "
-            f"The largest flagged deal is {largest['account_name']} at {money(largest['deal_amount'])}: "
-            f"{largest['recommended_action']}"
-        )
-    else:
-        insight("No high-risk open deals are present in the selected filters.")
-
-    st.markdown("**Prioritized Opportunities**")
-    friendly_dataframe(
-        action_queue[
-            [
-                "deal_id",
-                "account_name",
-                "rep_name",
-                "segment",
-                "stage",
-                "forecast_category",
-                "deal_amount",
-                "days_in_current_stage",
-                "last_activity_date",
-                "ai_risk_level",
-                "ai_risk_reason",
-                "recommended_action",
-            ]
-        ],
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "ai_risk_level": "Risk level",
-            "ai_risk_reason": "Risk reason",
-            "recommended_action": "Manager action",
-            "deal_amount": st.column_config.NumberColumn("Deal amount", format="$%d"),
-        },
     )
 

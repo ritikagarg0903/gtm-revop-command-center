@@ -35,8 +35,8 @@ The command center covers the full path from demand creation to revenue executio
 1. **Demand Generation & Funnel Performance** — track leads through MQL, SQL, opportunity, and customer stages; compare conversion rates and acquisition-source contribution.
 2. **Marketing-to-Sales Handoff** — monitor whether MQLs receive a first sales contact within the response SLA and identify leads still awaiting contact.
 3. **Prospecting & Enrichment** — standardize company and contact data, validate emails and domains, assess provider quality and freshness, and exclude duplicate records.
-4. **Scoring & Human Review** — calculate fit, intent, signal-quality, and data-confidence scores, then approve, reject, or hold each prospect with a reason code.
-5. **Lead Routing** — route only approved prospects using territory, segment, rep availability, remaining capacity, and round-robin assignment. Rejected, pending, and held prospects do not enter this stage.
+4. **Scoring & Human Review** — admit only unique records with valid email and domain data, calculate fit, intent, signal-quality, and data-confidence scores, then approve, reject, or hold each eligible prospect with a reason code.
+5. **Lead Routing** — route only approved, scored prospects using territory, segment specialization, rep availability, remaining capacity, lowest workload utilization, and round-robin tie-breaking. Rejected, pending, held, and data-quality-ineligible prospects do not enter this stage.
 6. **Pipeline & Forecast Management** — monitor expected pipeline value, stage aging, forecast categories, and rules-based Deal Risk Level.
 
 The **Executive Overview** summarizes the health of this operating model across demand conversion, CRM readiness, human review, assignment, and pipeline through a compact, non-proportional operating-flow visualization.
@@ -64,7 +64,7 @@ The **Executive Overview** summarizes the health of this operating model across 
 
 ## Scoring Method
 
-Prospect scores are transparent and configurable:
+Prospect scores are transparent and configurable. Before scoring, a data-quality eligibility gate excludes records with an invalid email, invalid domain, or duplicate identity:
 
 - **Fit:** segment, company size, and role
 - **Intent:** website visits, content engagement, and pricing-page views in the last 30 days
@@ -75,15 +75,14 @@ The component weights are normalized to 100%. A human review gate remains betwee
 
 ## Routing Criteria
 
-Approved prospects are evaluated in this order:
+Only scoring-eligible prospects approved by the human review gate enter routing. They are evaluated in this order:
 
-1. Valid email and domain
-2. No duplicate record
-3. Territory match
-4. Segment match
-5. Representative accepting new leads
-6. Remaining representative capacity
-7. Round-robin assignment among eligible representatives
+1. Territory match
+2. Segment specialization match
+3. Representative accepting new leads
+4. Remaining representative capacity
+5. Lowest current workload utilization
+6. Round-robin tie-break among equally utilized eligible representatives
 
 ## Deal Risk Method
 

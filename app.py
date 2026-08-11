@@ -484,8 +484,8 @@ with tabs[2]:
         route4.metric("Reps Accepting New Leads", f"{rep_capacity['available'].sum():,}")
 
         st.markdown(
-            "**Routing criteria:** Approved review decision → valid email and domain → no duplicate → "
-            "territory and segment match → rep accepting new leads → remaining capacity → round-robin assignment."
+            "**Routing criteria:** Approved scoring-review decision → territory match → segment specialization → "
+            "rep accepting new leads → remaining capacity → lowest workload utilization → round-robin tie-break."
         )
 
         st.markdown("**Unassigned Lead Queue**")
@@ -582,7 +582,17 @@ with tabs[2]:
         )
 
     with scoring_view:
-        st.caption("Adjust the component weights. Scores are recalculated immediately and normalized to 100%. The attributes in parentheses are the score inputs.")
+        scoring_eligible = prospects[
+            prospects["email_valid"]
+            & prospects["domain_valid"]
+            & ~prospects["is_duplicate"]
+        ]
+        excluded_from_scoring = len(prospects) - len(scoring_eligible)
+        st.caption(
+            "Only unique prospects with a valid email and domain enter scoring. "
+            f"{excluded_from_scoring:,} records are currently excluded by this data-quality gate. "
+            "Adjust the component weights below; eligible scores recalculate immediately and normalize to 100%."
+        )
         weight1, weight2, weight3, weight4 = st.columns(4)
         fit_weight = weight1.slider("Fit (segment, size, role)", 0, 100, 40, 5)
         intent_weight = weight2.slider("Intent (visits, content, pricing)", 0, 100, 30, 5)

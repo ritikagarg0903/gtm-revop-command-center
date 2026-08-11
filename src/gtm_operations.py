@@ -88,7 +88,12 @@ def add_canonical_and_duplicate_fields(prospects: pd.DataFrame) -> pd.DataFrame:
 
 
 def score_prospects(prospects: pd.DataFrame, weights: dict[str, float]) -> pd.DataFrame:
-    result = prospects.copy()
+    """Score only unique prospects with valid email and domain data."""
+    result = prospects[
+        prospects["email_valid"]
+        & prospects["domain_valid"]
+        & ~prospects["is_duplicate"]
+    ].copy()
     score_columns = {
         "fit": "fit_score",
         "intent": "intent_score",
@@ -104,7 +109,7 @@ def score_prospects(prospects: pd.DataFrame, weights: dict[str, float]) -> pd.Da
 
 
 def route_leads(prospects: pd.DataFrame, rep_capacity: pd.DataFrame) -> pd.DataFrame:
-    """Apply territory/segment eligibility, availability, capacity and round-robin assignment."""
+    """Route approved, scored prospects by fit, availability and balanced capacity."""
     result = prospects.copy().sort_values("prospect_id")
     capacity = rep_capacity.copy()
     counters: dict[tuple[str, str], int] = {}
@@ -115,36 +120,32 @@ def route_leads(prospects: pd.DataFrame, rep_capacity: pd.DataFrame) -> pd.DataF
         rep_name = ""
         status = "Unassigned"
 
-        if bool(lead.get("is_duplicate", False)):
-            reason = f"Duplicate of {lead.get('duplicate_of', 'existing record')}"
-        elif not bool(lead.get("email_valid", False)) or not bool(lead.get("domain_valid", False)):
-            reason = "Invalid email or domain"
-        elif lead.get("review_status") != "Approved":
-            reason = f"Review gate: {lead.get('review_status', 'Pending')}"
-        else:
-            eligible = capacity[
-                capacity["available"]
-                & (capacity["current_load"] < capacity["max_capacity"])
-                & capacity["territories"].str.split("|").apply(lambda values: lead["territory"] in values)
-                & capacity["segments"].str.split("|").apply(lambda values: lead["segment"] in values)
-            ].sort_values("rep_name")
+        eligible = capacity[
+            capacity["available"]
+            & (capacity["current_load"] < capacity["max_capacity"])
+            & capacity["territories"].str.split("|").apply(lambda values: lead["territory"] in values)
+            & capacity["segments"].str.split("|").apply(lambda values: lead["segment"] in values)
+        ].copy()
 
-            if eligible.empty:
-                reason = "No available rep with matching territory, segment and capacity"
-            else:
-                key = (lead["territory"], lead["segment"])
-                position = counters.get(key, 0) % len(eligible)
-                selected_index = eligible.index[position]
-                selected = capacity.loc[selected_index]
-                rep_name = selected["rep_name"]
-                capacity.loc[selected_index, "current_load"] += 1
-                counters[key] = counters.get(key, 0) + 1
-                status = "Assigned"
-                reason = (
-                    f"Matched {lead['territory']} territory and {lead['segment']} segment; "
-                    f"round-robin position {position + 1}; capacity "
-                    f"{int(selected['current_load'])}/{int(selected['max_capacity'])} before assignment"
-                )
+        if eligible.empty:
+            reason = "No available rep with matching territory, segment and remaining capacity"
+        else:
+            eligible["utilization"] = eligible["current_load"] / eligible["max_capacity"]
+            lowest_utilization = eligible["utilization"].min()
+            balanced_pool = eligible[eligible["utilization"].eq(lowest_utilization)].sort_values("rep_name")
+            key = (lead["territory"], lead["segment"])
+            position = counters.get(key, 0) % len(balanced_pool)
+            selected_index = balanced_pool.index[position]
+            selected = capacity.loc[selected_index]
+            rep_name = selected["rep_name"]
+            capacity.loc[selected_index, "current_load"] += 1
+            counters[key] = counters.get(key, 0) + 1
+            status = "Assigned"
+            reason = (
+                f"Matched {lead['territory']} territory and {lead['segment']} segment; "
+                f"selected from the lowest-utilization reps at {lowest_utilization * 100:.1f}% load; "
+                f"round-robin tie-break position {position + 1}"
+            )
 
         assignments.append({"routed_rep": rep_name, "routing_status": status, "routing_reason": reason})
 

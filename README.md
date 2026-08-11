@@ -2,7 +2,7 @@
 
 An interactive portfolio project that models an end-to-end go-to-market and revenue operations workflow using synthetic CRM, prospect, routing, and pipeline data.
 
-The dashboard connects demand generation to revenue execution: leads enter the funnel, prospect records are enriched and validated, approved prospects are scored and routed, and pipeline health is monitored.
+The dashboard connects demand generation to revenue execution: leads enter the funnel, prospect records are enriched and validated, approved prospects are scored and routed, and pipeline health is monitored. The Executive Overview presents these systems as a compact operating flow without implying that separate synthetic datasets form one conversion cohort.
 
 **[Open the Live Dashboard](https://gtm-revops-command-center.streamlit.app/)**
 
@@ -39,11 +39,11 @@ The command center covers the full path from demand creation to revenue executio
 5. **Lead Routing** — route only approved prospects using territory, segment, rep availability, remaining capacity, and round-robin assignment. Rejected, pending, and held prospects do not enter this stage.
 6. **Pipeline & Forecast Management** — monitor expected pipeline value, stage aging, forecast categories, and rules-based Deal Risk Level.
 
-The **Executive Overview** summarizes the health of this operating model across demand conversion, CRM readiness, assignment, and pipeline.
+The **Executive Overview** summarizes the health of this operating model across demand conversion, CRM readiness, human review, assignment, and pipeline through a compact, non-proportional operating-flow visualization.
 
 ## Key Features
 
-- End-to-end executive overview spanning demand conversion, CRM readiness, routing, and pipeline
+- End-to-end executive overview with a visual operating flow spanning demand, CRM readiness, human review, routing, and pipeline
 - Lead-to-customer funnel based on dated lifecycle milestones
 - Pipeline and closed-won revenue by acquisition source
 - Marketing-to-sales response SLA summary
@@ -57,7 +57,7 @@ The **Executive Overview** summarizes the health of this operating model across 
 
 ## Dashboard Sections
 
-- **Executive Overview:** End-to-end health of demand conversion, prospect readiness, routing, and revenue pipeline.
+- **Executive Overview:** KPI summary, visual GTM operating flow, operational exceptions, prospect readiness, routing, and revenue pipeline.
 - **GTM Funnel & Sources:** Funnel conversion, acquisition-source performance, and marketing-to-sales response time.
 - **GTM Operations:** Enrichment, scoring and review, and approved-only routing.
 - **Pipeline Health:** Expected pipeline value, stage aging, forecast categories, and deal-risk distribution.

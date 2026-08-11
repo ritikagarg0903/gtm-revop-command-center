@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from src.gtm_operations import (
@@ -196,6 +197,65 @@ def show_chart(fig, **kwargs):
     return st.plotly_chart(fig, config=config, **kwargs)
 
 
+def operating_flow_chart(stages: list[tuple[str, str]]):
+    """Build a compact, non-proportional view of the GTM operating sequence."""
+    box_width = 0.16
+    gap = (1 - box_width * len(stages)) / (len(stages) - 1)
+    colors = ["#2563EB", "#0EA5E9", "#14B8A6", "#22C55E", "#84CC16"]
+    fig = go.Figure()
+
+    for index, ((label, value), color) in enumerate(zip(stages, colors)):
+        x0 = index * (box_width + gap)
+        x1 = x0 + box_width
+        fig.add_shape(
+            type="rect",
+            x0=x0,
+            x1=x1,
+            y0=0.22,
+            y1=0.82,
+            line=dict(color=color, width=2),
+            fillcolor=color,
+            opacity=0.12,
+            layer="below",
+        )
+        fig.add_annotation(
+            x=(x0 + x1) / 2,
+            y=0.52,
+            text=f"<b>{label}</b><br><span style='font-size:20px'>{value}</span>",
+            showarrow=False,
+            align="center",
+            font=dict(color="#0F172A", size=13),
+        )
+        if index < len(stages) - 1:
+            fig.add_annotation(
+                x=x1 + gap * 0.82,
+                y=0.52,
+                ax=x1 + gap * 0.18,
+                ay=0.52,
+                xref="x",
+                yref="y",
+                axref="x",
+                ayref="y",
+                text="",
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1.1,
+                arrowwidth=2,
+                arrowcolor="#94A3B8",
+            )
+
+    fig.update_xaxes(range=[-0.02, 1.02], visible=False, fixedrange=True)
+    fig.update_yaxes(range=[0, 1], visible=False, fixedrange=True)
+    fig.update_layout(
+        title="GTM Operating Flow",
+        height=250,
+        margin=dict(l=15, r=15, t=55, b=10),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    return fig
+
+
 deals, quotas, leads, prospects, rep_capacity = load_data(DATA_SCHEMA_VERSION)
 
 st.title("GTM & Revenue Operations Command Center")
@@ -246,7 +306,6 @@ overview_scored = score_prospects(
 )
 overview_routing_candidates = overview_scored[overview_scored["review_status"].eq("Approved")].copy()
 overview_routed = route_leads(overview_routing_candidates, rep_capacity)
-overview_funnel = gtm_funnel(filtered_leads)
 overview_sla, _ = sla_summary(filtered_leads, target_hours=24)
 lead_to_opportunity_rate = (
     filtered_leads["opportunity_date"].notna().mean() * 100 if len(filtered_leads) else 0
@@ -273,47 +332,48 @@ with tabs[0]:
     col3.metric("Prospects Assigned", f"{overview_routed['routing_status'].eq('Assigned').sum():,}")
     col4.metric("Open Pipeline", money(coverage["open_pipeline"]))
 
-    left, right = st.columns(2)
-    with left:
-        show_chart(
-            bar_chart(
-                overview_funnel,
-                "lifecycle_stage",
-                "record_count",
-                title="Demand Funnel Snapshot",
-                height=300,
-            ),
-            use_container_width=True,
-        )
-    with right:
-        operational_exceptions = pd.DataFrame(
-            {
-                "exception_type": [
-                    "MQLs not contacted",
-                    "Prospects failing validation",
-                    "Unassigned prospects",
-                ],
-                "record_count": [
-                    int(overview_sla["awaiting_follow_up"]),
-                    len(overview_prospects) - len(overview_ready),
-                    int(overview_routed["routing_status"].eq("Unassigned").sum()),
-                ],
-            }
-        )
-        show_chart(
-            bar_chart(
-                operational_exceptions,
-                "exception_type",
-                "record_count",
-                title="Operational Exceptions Requiring Attention",
-                height=300,
-            ),
-            use_container_width=True,
-        )
+    assigned_count = int(overview_routed["routing_status"].eq("Assigned").sum())
+    operating_stages = [
+        ("Demand", f"{len(filtered_leads):,} leads"),
+        ("CRM Validation", f"{len(overview_ready):,} ready"),
+        ("Human Review", f"{len(overview_routing_candidates):,} approved"),
+        ("Lead Routing", f"{assigned_count:,} assigned"),
+        ("Pipeline", money(coverage["open_pipeline"])),
+    ]
+    show_chart(operating_flow_chart(operating_stages), use_container_width=True)
+    st.caption(
+        "The operating flow summarizes connected processes. Stage values come from separate synthetic "
+        "lead, prospect, routing, and opportunity datasets and are not a single conversion cohort."
+    )
+
+    operational_exceptions = pd.DataFrame(
+        {
+            "exception_type": [
+                "MQLs not contacted",
+                "Prospects failing validation",
+                "Unassigned prospects",
+            ],
+            "record_count": [
+                int(overview_sla["awaiting_follow_up"]),
+                len(overview_prospects) - len(overview_ready),
+                int(overview_routed["routing_status"].eq("Unassigned").sum()),
+            ],
+        }
+    )
+    show_chart(
+        bar_chart(
+            operational_exceptions,
+            "exception_type",
+            "record_count",
+            title="Operational Exceptions Requiring Attention",
+            height=280,
+        ),
+        use_container_width=True,
+    )
 
     insight(
         f"{len(overview_ready):,} prospects are validated for CRM delivery, "
-        f"{overview_routed['routing_status'].eq('Assigned').sum():,} are assigned, and "
+        f"{assigned_count:,} are assigned, and "
         f"open pipeline totals {money(coverage['open_pipeline'])}."
     )
 

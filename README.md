@@ -2,7 +2,7 @@
 
 An interactive portfolio project that models an end-to-end go-to-market and revenue operations workflow using synthetic CRM, prospect, routing, and pipeline data.
 
-The dashboard connects demand generation to revenue execution: leads enter the funnel, prospect records are enriched and validated, approved prospects are scored and routed, and pipeline health is monitored. The Executive Overview presents these systems as a compact operating flow without implying that separate synthetic datasets form one conversion cohort.
+The dashboard connects demand generation to revenue execution: leads enter the funnel, prospect records are enriched and validated, approved prospects are scored and routed, and pipeline health is monitored.
 
 **[Open the Live Dashboard](https://gtm-revops-command-center.streamlit.app/)**
 
@@ -39,11 +39,11 @@ The command center covers the full path from demand creation to revenue executio
 5. **Lead Routing** — route only approved, scored prospects using territory, segment specialization, rep availability, remaining capacity, lowest workload utilization, and round-robin tie-breaking. Rejected, pending, held, and data-quality-ineligible prospects do not enter this stage.
 6. **Pipeline & Forecast Management** — monitor expected pipeline value, stage aging, forecast categories, and rules-based Deal Risk Level.
 
-The **Executive Overview** summarizes the health of this operating model across demand conversion, CRM readiness, human review, assignment, and pipeline through a compact, non-proportional operating-flow visualization.
+The **Executive Overview** summarizes the health of this operating model across demand conversion, CRM readiness, assignment, and pipeline.
 
 ## Key Features
 
-- End-to-end executive overview with a visual operating flow spanning demand, CRM readiness, human review, routing, and pipeline
+- End-to-end executive overview spanning demand conversion, CRM readiness, routing, and pipeline
 - Lead-to-customer funnel based on dated lifecycle milestones
 - Pipeline and closed-won revenue by acquisition source
 - Marketing-to-sales response SLA summary
@@ -57,7 +57,7 @@ The **Executive Overview** summarizes the health of this operating model across 
 
 ## Dashboard Sections
 
-- **Executive Overview:** KPI summary, visual GTM operating flow, operational exceptions, prospect readiness, routing, and revenue pipeline.
+- **Executive Overview:** KPI summary, demand funnel, operational exceptions, prospect readiness, routing, and revenue pipeline.
 - **GTM Funnel & Sources:** Funnel conversion, acquisition-source performance, and marketing-to-sales response time.
 - **GTM Operations:** Enrichment, scoring and review, and approved-only routing.
 - **Pipeline Health:** Expected pipeline value, stage aging, forecast categories, and deal-risk distribution.
@@ -68,8 +68,7 @@ Prospect scores are transparent and configurable. Before scoring, a data-quality
 
 - **Fit:** segment, company size, and role
 - **Intent:** website visits, content engagement, and pricing-page views in the last 30 days
-- **Signal quality:** signal recency, corroboration, and source confidence
-- **Data confidence:** email validity, domain validity, and record freshness
+- **Signal & data confidence:** signal recency, corroboration, source confidence, and record freshness. This combines the former signal-quality and data-confidence components; email and domain validity remain prerequisites in the scoring eligibility gate.
 
 The component weights are normalized to 100%. A human review gate remains between scoring and routing so the score informs a decision rather than automatically activating every prospect.
 

@@ -35,7 +35,7 @@ The command center covers the full path from demand creation to revenue executio
 1. **Demand Generation & Funnel Performance** — track leads through MQL, SQL, opportunity, and customer stages; compare conversion rates and acquisition-source contribution.
 2. **Marketing-to-Sales Handoff** — monitor whether MQLs receive a first sales contact within the response SLA and identify leads still awaiting contact.
 3. **Prospecting & Enrichment** — standardize company and contact data, validate emails and domains, assess provider quality and freshness, and exclude duplicate records.
-4. **Scoring & Human Review** — admit only unique records with valid email and domain data, calculate fit, intent, signal-quality, and data-confidence scores, then approve, reject, or hold each eligible prospect with a reason code.
+4. **Scoring & Human Review** — admit only unique records with valid email and domain data, calculate fit, intent, and combined signal-and-data-confidence scores, then approve, reject, or hold each eligible prospect with a reason code.
 5. **Lead Routing** — route only approved, scored prospects using territory, segment specialization, rep availability, remaining capacity, lowest workload utilization, and round-robin tie-breaking. Rejected, pending, held, and data-quality-ineligible prospects do not enter this stage.
 6. **Pipeline & Forecast Management** — monitor expected pipeline value, stage aging, forecast categories, and rules-based Deal Risk Level.
 
@@ -49,9 +49,9 @@ The **Executive Overview** summarizes the health of this operating model across 
 - Marketing-to-sales response SLA summary
 - Provider-quality comparison using validity, duplicate rate, freshness, and source confidence
 - Validated and enriched prospect records ready for CRM delivery
-- Configurable fit, intent, signal-quality, and data-confidence scoring
+- Configurable three-component scoring across fit, intent, and combined signal and data confidence
 - Human approve, reject, and hold review gate with reason codes
-- Approved-only routing using territory, segment, rep availability, capacity, and round-robin rules
+- Approved-only routing using territory, segment specialization, rep availability, remaining capacity, lowest workload utilization, and round-robin tie-breaking
 - Expected pipeline value and deal risk by sales stage
 - Synthetic data generator for safe public demonstration
 
@@ -71,6 +71,8 @@ Prospect scores are transparent and configurable. Before scoring, a data-quality
 - **Signal & data confidence:** signal recency, corroboration, source confidence, and record freshness. This combines the former signal-quality and data-confidence components; email and domain validity remain prerequisites in the scoring eligibility gate.
 
 The component weights are normalized to 100%. A human review gate remains between scoring and routing so the score informs a decision rather than automatically activating every prospect.
+
+Default weights are **Fit 40%**, **Intent 30%**, and **Signal & Data Confidence 30%**. Within the combined component, the former signal-quality score contributes two-thirds and the former data-confidence score contributes one-third, preserving the prior 20% and 10% contributions.
 
 ## Routing Criteria
 

@@ -151,7 +151,7 @@ def route_leads(prospects: pd.DataFrame, rep_capacity: pd.DataFrame) -> pd.DataF
 
         assignments.append({"routed_rep": rep_name, "routing_status": status, "routing_reason": reason})
 
-    return pd.concat([result.reset_index(drop=True), pd.DataFrame(assignments)], axis=1)
+    return pd.concat([result.reset_index(drop=True), pd.DataFrame(assignments, columns=["routed_rep", "routing_status", "routing_reason"])], axis=1)
 
 
 def deterministic_variant(key: str, variants: list[str]) -> str:

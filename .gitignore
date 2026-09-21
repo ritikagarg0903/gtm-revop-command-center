@@ -7,3 +7,5 @@ data/*.csv
 !data/.gitkeep
 assets/screenshots/*
 !assets/screenshots/.gitkeep
+
+data/*.sqlite*

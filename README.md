@@ -165,7 +165,7 @@ With access to production systems, the next steps would be to:
 - Track stage movement and forecast changes over time
 - Add role-based access, audit logs, alerts, and scheduled pipeline summaries
 
-## Lead Recycling & Multi-Touch Routing
+## Previous Lifecycle Simulation (reference)
 
 The [source specification](docs/lead-recycling-spec.md) is implemented as a deterministic portfolio simulation in `src/lifecycle.py`. No real outreach is sent, and no scheduler or CRM integration is connected.
 
@@ -177,3 +177,7 @@ The [source specification](docs/lead-recycling-spec.md) is implemented as a dete
 - Lifecycle dates are synthetic historical scenarios, not reconstructed CRM events. Segment filters apply to prospects; quarter filters apply to demand and revenue only. The lifecycle and routing use default scoring and source review decisions; the existing scoring editor is a what-if preview.
 
 Validate with `python -m unittest discover -s tests -v`.
+
+## Automatic Workflow
+
+The dashboard now uses a persistent rules engine with event deduplication, automatic pipeline transitions, capacity-aware assignment, pending delivery actions, and a movement audit trail. Scoring uses the fixed 40/30/30 model; the former what-if review editor is removed. The historical simulation module remains only for reference tests. See [Automatic workflow](docs/automatic-workflow.md) for rules, worker execution, data contracts, and deferred integration requirements.

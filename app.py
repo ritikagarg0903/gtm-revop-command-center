@@ -25,6 +25,7 @@ from src.metrics import (
     stale_deals,
 )
 from src.risk_scoring import add_risk_scores
+from src.lifecycle import CADENCE, EVENT_POINTS, simulate_lifecycle, lifecycle_metrics
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -214,7 +215,7 @@ with st.sidebar:
     selected_segments = st.multiselect("Segment", sorted(deals["segment"].unique()))
 
     st.divider()
-    st.caption("Data is synthetic. Quarter and segment filters apply across every dashboard section.")
+    st.caption("Data is synthetic. Quarter filters apply to revenue and demand. Segment filters also apply to prospect operations and recycling; recycling uses simulated history as of today.")
 
 filtered = filter_deals(deals, selected_quarter, selected_segments, [], [])
 if filtered.empty:
@@ -232,6 +233,7 @@ attainment = quota_attainment(filtered, quotas, selected_quarter)
 if selected_segments:
     attainment = attainment[attainment["segment_focus"].isin(selected_segments)].copy()
 coverage = pipeline_coverage(filtered, attainment)
+prospects = prospects[prospects["segment"].isin(selected_segments)].copy() if selected_segments else prospects
 overview_prospects = prospects.copy()
 if selected_segments:
     overview_prospects = overview_prospects[overview_prospects["segment"].isin(selected_segments)].copy()
@@ -246,6 +248,8 @@ overview_scored = score_prospects(
 )
 overview_routing_candidates = overview_scored[overview_scored["review_status"].eq("Approved")].copy()
 overview_routed = route_leads(overview_routing_candidates, rep_capacity)
+lifecycle = simulate_lifecycle(overview_prospects, overview_scored, overview_routed, rep_capacity)
+recycling = lifecycle_metrics(lifecycle)
 overview_funnel = gtm_funnel(filtered_leads)
 overview_sla, _ = sla_summary(filtered_leads, target_hours=24)
 lead_to_opportunity_rate = (
@@ -257,7 +261,6 @@ tabs = st.tabs(
         "Executive Overview",
         "GTM Funnel & Sources",
         "GTM Operations",
-        "Pipeline Health",
     ]
 )
 
@@ -273,18 +276,31 @@ with tabs[0]:
     col3.metric("Prospects Assigned", f"{overview_routed['routing_status'].eq('Assigned').sum():,}")
     col4.metric("Open Pipeline", money(coverage["open_pipeline"]))
 
+    st.subheader("Lead recycling & recovery")
+    st.caption("Simulated lifecycle history • daily re-scoring • qualification ≥70 • recovery ≥20 engagement points")
+    a, b, c, d, e = st.columns(5)
+    a.metric("Nurture-to-SQL Recovery", f"{recycling['recovery_rate']:.1f}%",
+             help=f"{recycling['recovered']} recovered SQLs / {recycling['nurture_total']} nurture entrants")
+    b.metric("Cadence Response Rate", f"{recycling['response_rate']:.1f}%",
+             help=f"{recycling['responses']} responders / {recycling['cadence_total']} enrolled")
+    c.metric("Time to First Response", f"{recycling['response_days']:.1f} days" if pd.notna(recycling['response_days']) else "—")
+    d.metric("Unassigned Prospects", f"{recycling['unassigned_before']} → {recycling['unassigned_after']}",
+             help="Before recycling → still awaiting a matching cadence owner. Historical enrollments count as routed.")
+    e.metric("Dormant Leads", recycling['dormant'])
+    st.caption("Below threshold → nurture → re-engaged → SQL. Qualified + unassigned → rep cadence → conversation or nurture. Invalid records have a data-repair action before outreach.")
+
     assigned_count = int(overview_routed["routing_status"].eq("Assigned").sum())
     operational_exceptions = pd.DataFrame(
         {
             "exception_type": [
                 "MQLs not contacted",
                 "Prospects failing validation",
-                "Unassigned prospects",
+                "Awaiting cadence owner",
             ],
             "record_count": [
                 int(overview_sla["awaiting_follow_up"]),
                 len(overview_prospects) - len(overview_ready),
-                int(overview_routed["routing_status"].eq("Unassigned").sum()),
+                recycling["unassigned_after"],
             ],
         }
     )
@@ -317,6 +333,101 @@ with tabs[0]:
         f"{assigned_count:,} are assigned, and "
         f"open pipeline totals {money(coverage['open_pipeline'])}."
     )
+
+with tabs[0]:
+    st.subheader("Pipeline health")
+    risk1, risk2, risk3 = st.columns(3)
+    risk1.metric("Expected Pipeline", money(filtered_open["weighted_pipeline"].sum()))
+    risk2.metric("High-Risk Pipeline", money(filtered_open.loc[filtered_open["ai_risk_level"].eq("High"), "deal_amount"].sum()))
+    risk3.metric("Aging Pipeline (45+ Days)", money(stale_deals(filtered, min_days=45)["deal_amount"].sum()))
+    section_header(
+        "Pipeline Health",
+        "Where open pipeline sits, its expected value after stage probability, and which deals are aging.",
+    )
+
+    stage_pipeline = (
+        filtered_open.groupby("stage", as_index=False)[["deal_amount", "weighted_pipeline"]]
+        .sum()
+        .sort_values("stage", key=lambda values: values.map({stage: i for i, stage in enumerate(OPEN_STAGES)}))
+    )
+    risk_summary = (
+        filtered_open.groupby("ai_risk_level", as_index=False)
+        .agg(deal_count=("deal_id", "count"), pipeline_value=("deal_amount", "sum"))
+        .rename(columns={"ai_risk_level": "deal_risk_level"})
+    )
+    risk_order = {"Low": 0, "Medium": 1, "High": 2}
+    risk_summary["risk_order"] = risk_summary["deal_risk_level"].map(risk_order)
+    risk_summary = risk_summary.sort_values("risk_order")
+
+    st.markdown(
+        "**Deal Risk Level criteria:** Deal notes, stage age, recent activity, expected close date, "
+        "and forecast category."
+    )
+    left, right = st.columns(2)
+    with left:
+        if stage_pipeline.empty:
+            st.warning("No open pipeline matches the selected filters.")
+        else:
+            expected_stage_pipeline = stage_pipeline.rename(
+                columns={"weighted_pipeline": "expected_pipeline_value"}
+            )
+            show_chart(
+                bar_chart(
+                    expected_stage_pipeline,
+                    "stage",
+                    "expected_pipeline_value",
+                    title="Expected Pipeline Value by Stage",
+                ),
+                use_container_width=True,
+            )
+    with right:
+        if risk_summary.empty:
+            st.warning("No open deals are available for risk review under the selected filters.")
+        else:
+            show_chart(
+                bar_chart(
+                    risk_summary,
+                    "deal_risk_level",
+                    "pipeline_value",
+                    title="Open Pipeline by Deal Risk Level",
+                ),
+                use_container_width=True,
+            )
+
+    aged = stale_deals(filtered, min_days=45)
+    aged_value = aged["deal_amount"].sum()
+    insight(f"{money(aged_value)} in open pipeline has been in its current stage for 45+ days.")
+
+    st.markdown("**Forecast Category Legend**")
+    legend_columns = st.columns(5)
+    legend_items = [
+        ("Pipeline", "Active deal; close evidence is incomplete"),
+        ("Best Case", "Could close this period; a material dependency remains"),
+        ("Commit", "Customer-confirmed next step supports closing this period"),
+        ("Closed", "Opportunity is already Closed Won"),
+        ("Omitted", "Excluded because it is lost or not forecastable"),
+    ]
+    for column, (category, definition) in zip(legend_columns, legend_items):
+        column.markdown(f"**{category}**  \n{definition}")
+
+    friendly_dataframe(
+        aged[
+            [
+                "deal_id",
+                "account_name",
+                "rep_name",
+                "segment",
+                "stage",
+                "forecast_category",
+                "deal_amount",
+                "days_in_current_stage",
+                "last_activity_date",
+            ]
+        ].head(20),
+        use_container_width=True,
+        hide_index=True,
+    )
+
 
 with tabs[1]:
     section_header(
@@ -400,11 +511,12 @@ with tabs[2]:
         "Operational controls for enrichment, scoring review, and routing.",
     )
 
-    enrichment_view, scoring_view, routing_view = st.tabs(
+    enrichment_view, scoring_view, routing_view, recycling_view = st.tabs(
         [
             "1. Prospecting & Enrichment",
             "2. Scoring & Review",
             "3. Lead Routing",
+            "4. Lead Recycling",
         ]
     )
 
@@ -565,7 +677,8 @@ with tabs[2]:
             use_container_width=True,
         )
 
-        st.markdown("**Human Review Gate**")
+        st.markdown("**Human Review Gate · What-if Preview**")
+        st.caption("Edits preview review decisions only; operational routing and recycling use source decisions and default weights.")
         review_candidates = scored.sort_values("total_score", ascending=False).head(40)[
             [
                 "prospect_id",
@@ -600,92 +713,25 @@ with tabs[2]:
             key="review_gate",
         )
 
-with tabs[3]:
-    section_header(
-        "Pipeline Health",
-        "Where open pipeline sits, its expected value after stage probability, and which deals are aging.",
-    )
 
-    stage_pipeline = (
-        filtered_open.groupby("stage", as_index=False)[["deal_amount", "weighted_pipeline"]]
-        .sum()
-        .sort_values("stage", key=lambda values: values.map({stage: i for i, stage in enumerate(OPEN_STAGES)}))
-    )
-    risk_summary = (
-        filtered_open.groupby("ai_risk_level", as_index=False)
-        .agg(deal_count=("deal_id", "count"), pipeline_value=("deal_amount", "sum"))
-        .rename(columns={"ai_risk_level": "deal_risk_level"})
-    )
-    risk_order = {"Low": 0, "Medium": 1, "High": 2}
-    risk_summary["risk_order"] = risk_summary["deal_risk_level"].map(risk_order)
-    risk_summary = risk_summary.sort_values("risk_order")
-
-    st.markdown(
-        "**Deal Risk Level criteria:** Deal notes, stage age, recent activity, expected close date, "
-        "and forecast category."
-    )
-    left, right = st.columns(2)
-    with left:
-        if stage_pipeline.empty:
-            st.warning("No open pipeline matches the selected filters.")
-        else:
-            expected_stage_pipeline = stage_pipeline.rename(
-                columns={"weighted_pipeline": "expected_pipeline_value"}
-            )
-            show_chart(
-                bar_chart(
-                    expected_stage_pipeline,
-                    "stage",
-                    "expected_pipeline_value",
-                    title="Expected Pipeline Value by Stage",
-                ),
-                use_container_width=True,
-            )
-    with right:
-        if risk_summary.empty:
-            st.warning("No open deals are available for risk review under the selected filters.")
-        else:
-            show_chart(
-                bar_chart(
-                    risk_summary,
-                    "deal_risk_level",
-                    "pipeline_value",
-                    title="Open Pipeline by Deal Risk Level",
-                ),
-                use_container_width=True,
-            )
-
-    aged = stale_deals(filtered, min_days=45)
-    aged_value = aged["deal_amount"].sum()
-    insight(f"{money(aged_value)} in open pipeline has been in its current stage for 45+ days.")
-
-    st.markdown("**Forecast Category Legend**")
-    legend_columns = st.columns(5)
-    legend_items = [
-        ("Pipeline", "Active deal; close evidence is incomplete"),
-        ("Best Case", "Could close this period; a material dependency remains"),
-        ("Commit", "Customer-confirmed next step supports closing this period"),
-        ("Closed", "Opportunity is already Closed Won"),
-        ("Omitted", "Excluded because it is lost or not forecastable"),
-    ]
-    for column, (category, definition) in zip(legend_columns, legend_items):
-        column.markdown(f"**{category}**  \n{definition}")
-
-    friendly_dataframe(
-        aged[
-            [
-                "deal_id",
-                "account_name",
-                "rep_name",
-                "segment",
-                "stage",
-                "forecast_category",
-                "deal_amount",
-                "days_in_current_stage",
-                "last_activity_date",
-            ]
-        ].head(20),
-        use_container_width=True,
-        hide_index=True,
-    )
-
+    with recycling_view:
+        st.subheader("Nurture & multi-touch sales cadence")
+        st.info("Portfolio simulation: synthetic activity and dates, no emails sent or live scheduled jobs. The lifecycle uses the default 40/30/30 score and saved source review decisions. Scoring controls above are a what-if preview.")
+        st.caption("Cadence owners are balanced within territory and segment among available reps using a separate simulated cadence workload. Direct-call capacity remains unchanged. Missing coverage stays visible for manager action.")
+        left, right = st.columns(2)
+        with left:
+            st.markdown("**Automated nurture**")
+            st.write("Four educational emails on days 0, 7, 14 and 21. Daily re-scoring promotes at 20 points; 90 days with no engagement becomes dormant. Invalid/duplicate records require repair before enrollment.")
+            friendly_dataframe(pd.DataFrame(EVENT_POINTS.items(), columns=["engagement_event", "points"]), hide_index=True, use_container_width=True)
+        with right:
+            st.markdown("**Rep-led cadence · business days**")
+            friendly_dataframe(pd.DataFrame(CADENCE, columns=["business_day", "action"]), hide_index=True, use_container_width=True)
+            st.write("A response stops the cadence and opens a live conversation. No response after day 10 enters nurture. All records retain their history.")
+        state_filter = st.multiselect("Lifecycle status", ["active", "nurture", "re-engaged", "dormant"])
+        records = lifecycle[lifecycle.status.isin(state_filter)] if state_filter else lifecycle
+        display_columns = ["prospect_id", "account_name", "segment", "territory", "status", "lifecycle_stage",
+                           "nurture_entry_date", "engagement_score", "engagement_events", "nurture_touch_count",
+                           "re_engagement_date", "cadence_status", "cadence_step", "assigned_rep",
+                           "cadence_start_date", "last_touch_date", "response_date", "next_action"]
+        friendly_dataframe(records[display_columns], hide_index=True, use_container_width=True)
+        st.download_button("Download lifecycle records", records[display_columns].to_csv(index=False), "lead-lifecycle.csv", "text/csv")

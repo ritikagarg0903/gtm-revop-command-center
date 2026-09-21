@@ -57,11 +57,15 @@ The **Executive Overview** summarizes the health of this operating model across 
 
 ## Dashboard Sections
 
-- **Executive Overview:** KPI summary, demand funnel, operational exceptions, prospect readiness, routing, and revenue pipeline.
-- **GTM Funnel & Sources:** Funnel conversion, acquisition-source performance, and marketing-to-sales response time.
-- **GTM Operations:** Enrichment, scoring and review, and approved-only routing.
-- Pipeline health is now part of **Executive Overview**, including expected value, high-risk value, stage aging, charts, and aging deal details.
-- **GTM Operations → Lead Recycling:** Nurture and rep-led cadence records, lifecycle dates, engagement, ownership, next actions, and CSV export.
+The navigation has five main tabs, with no nested GTM Operations tabs:
+
+- **Overview:** Leads Generated, Lead-to-MQL Conversion, Marketing-Sourced Pipeline, and Nurture-to-SQL Recovery.
+- **Prospecting & Enrichment:** Provider quality and validated prospect records.
+- **Scoring & Review:** Configurable scoring and the review preview.
+- **Lead Routing:** Ownership, routing exceptions, and rep capacity.
+- **Lead Recycling:** Nurture, cadence, lifecycle records, next actions, and CSV export.
+
+Funnel and acquisition-source views, pipeline risk/aging details, and additional summary metrics have been removed to focus the dashboard on a Marketing Specialist workflow. Marketing-sourced pipeline is total opportunity value across stages from Inbound, Paid Search, and Events; the metric tooltip makes this attribution convention explicit. Lead metrics use creation quarter, pipeline uses close quarter, and nurture recovery uses the current simulated prospect cohort. Segment filters apply throughout.
 
 ## Scoring Method
 
@@ -169,7 +173,7 @@ The [source specification](docs/lead-recycling-spec.md) is implemented as a dete
 - Four educational touches run on days 0, 7, 14, and 21. Synthetic open/click/site revisit/download/reply events contribute 1/3/4/5/10 points. Daily re-scoring is modeled; 20 points promotes to re-engaged with an SQL milestone. No engagement for 90 days marks the record dormant.
 - Approved, above-threshold prospects without a direct-call owner enter a matching territory/segment rep cadence. This demo has a separate balanced cadence workload; it does not claim to free direct-call capacity. Missing or unavailable coverage remains an explicit manager action.
 - Sales touches follow business-day offsets 0/2/4/7/10. A response stops the cadence; completion without response enters nurture and preserves cadence history.
-- Overview reports nurture-to-SQL recovery, cadence response rate, average calendar days to first response, actual unassigned before/after counts, and dormant records. Denominators include all historical enrollments, including completed records. No responses displays a dash.
+- Overview focuses on nurture-to-SQL recovery; cadence and dormancy history remain in the Lead Recycling records. Denominators include all historical enrollments, including completed records. No responses displays a dash.
 - Lifecycle dates are synthetic historical scenarios, not reconstructed CRM events. Segment filters apply to prospects; quarter filters apply to demand and revenue only. The lifecycle and routing use default scoring and source review decisions; the existing scoring editor is a what-if preview.
 
 Validate with `python -m unittest discover -s tests -v`.

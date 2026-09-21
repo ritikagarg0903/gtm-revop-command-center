@@ -13,17 +13,7 @@ from src.gtm_operations import (
     route_leads,
     score_prospects,
 )
-from src.metrics import (
-    OPEN_STAGES,
-    filter_deals,
-    gtm_funnel,
-    open_deals,
-    pipeline_coverage,
-    quota_attainment,
-    sla_summary,
-    source_performance,
-    stale_deals,
-)
+from src.metrics import filter_deals
 from src.risk_scoring import add_risk_scores
 from src.lifecycle import CADENCE, EVENT_POINTS, simulate_lifecycle, lifecycle_metrics
 
@@ -127,11 +117,6 @@ def section_header(title: str, caption: str) -> None:
         st.caption(caption)
 
 
-def insight(text: str) -> None:
-    escaped_text = text.replace("$", r"\$")
-    st.info(f"**Insight:** {escaped_text}")
-
-
 def bar_chart(
     df: pd.DataFrame,
     x: str,
@@ -201,8 +186,7 @@ deals, quotas, leads, prospects, rep_capacity = load_data(DATA_SCHEMA_VERSION)
 
 st.title("GTM & Revenue Operations Command Center")
 st.caption(
-    "An end-to-end view of demand conversion, acquisition sources, pipeline health, "
-    "prospect readiness, and lead routing."
+    "Marketing performance, prospect readiness, lead routing, and nurture recovery."
 )
 
 with st.sidebar:
@@ -210,38 +194,20 @@ with st.sidebar:
     quarters = sorted(deals["close_quarter"].dropna().unique())
     current_quarter = current_quarter_label()
     default_quarter = current_quarter if current_quarter in quarters else quarters[-1]
-    selected_quarter = st.selectbox("Close quarter", quarters, index=quarters.index(default_quarter))
+    selected_quarter = st.selectbox("Reporting quarter", quarters, index=quarters.index(default_quarter))
 
     selected_segments = st.multiselect("Segment", sorted(deals["segment"].unique()))
 
     st.divider()
-    st.caption("Data is synthetic. Quarter filters apply to revenue and demand. Segment filters also apply to prospect operations and recycling; recycling uses simulated history as of today.")
+    st.caption("Synthetic data. Quarter selects lead creation and opportunity close dates. Segment applies across all tabs. Operations and nurture recovery show the current prospect cohort, independent of quarter.")
 
 filtered = filter_deals(deals, selected_quarter, selected_segments, [], [])
-if filtered.empty:
-    st.warning(
-        "No deals match the current filters. Clear one or more filters to restore dashboard results."
-    )
-    st.stop()
-
 filtered_leads = leads[leads["lead_quarter"] == selected_quarter].copy()
 if selected_segments:
     filtered_leads = filtered_leads[filtered_leads["segment"].isin(selected_segments)]
 
-filtered_open = open_deals(filtered)
-attainment = quota_attainment(filtered, quotas, selected_quarter)
-if selected_segments:
-    attainment = attainment[attainment["segment_focus"].isin(selected_segments)].copy()
-coverage = pipeline_coverage(filtered, attainment)
 prospects = prospects[prospects["segment"].isin(selected_segments)].copy() if selected_segments else prospects
 overview_prospects = prospects.copy()
-if selected_segments:
-    overview_prospects = overview_prospects[overview_prospects["segment"].isin(selected_segments)].copy()
-overview_ready = overview_prospects[
-    ~overview_prospects["is_duplicate"]
-    & overview_prospects["email_valid"]
-    & overview_prospects["domain_valid"]
-]
 overview_scored = score_prospects(
     overview_prospects,
     {"fit": 40, "intent": 30, "signal_data_confidence": 30},
@@ -250,488 +216,242 @@ overview_routing_candidates = overview_scored[overview_scored["review_status"].e
 overview_routed = route_leads(overview_routing_candidates, rep_capacity)
 lifecycle = simulate_lifecycle(overview_prospects, overview_scored, overview_routed, rep_capacity)
 recycling = lifecycle_metrics(lifecycle)
-overview_funnel = gtm_funnel(filtered_leads)
-overview_sla, _ = sla_summary(filtered_leads, target_hours=24)
-lead_to_opportunity_rate = (
-    filtered_leads["opportunity_date"].notna().mean() * 100 if len(filtered_leads) else 0
+lead_to_mql_rate = filtered_leads["mql_date"].notna().mean() * 100 if len(filtered_leads) else None
+# Explicit attribution convention for this synthetic marketing portfolio.
+marketing_sources = ["Inbound", "Paid Search", "Events"]
+marketing_pipeline = filtered.loc[
+    filtered["acquisition_source"].isin(marketing_sources), "deal_amount"
+].sum()
+
+overview_view, enrichment_view, scoring_view, routing_view, recycling_view = st.tabs(
+    ["Overview", "Prospecting & Enrichment", "Scoring & Review", "Lead Routing", "Lead Recycling"]
 )
 
-tabs = st.tabs(
-    [
-        "Executive Overview",
-        "GTM Funnel & Sources",
-        "GTM Operations",
-    ]
-)
+with overview_view:
+    st.caption("The essentials: lead volume, qualification, marketing contribution, and nurture recovery.")
+    a, b, c, d = st.columns(4)
+    a.metric("Leads Generated", f"{len(filtered_leads):,}",
+             help="Leads created in the reporting quarter and selected segments.")
+    b.metric("Lead-to-MQL Conversion", f"{lead_to_mql_rate:.1f}%" if lead_to_mql_rate is not None else "—",
+             help="Leads with an MQL milestone divided by all leads created in the selected quarter.")
+    c.metric("Marketing-Sourced Pipeline", money(marketing_pipeline),
+             help="Total opportunity value from Inbound, Paid Search, and Events with a close date in the reporting quarter, across all deal stages. Outbound, Partners, and Referrals are excluded.")
+    d.metric("Nurture-to-SQL Recovery", f"{recycling['recovery_rate']:.1f}%" if recycling['nurture_total'] else "—",
+             help=f"{recycling['recovered']} recovered SQLs / {recycling['nurture_total']} nurture entrants in the current simulated prospect cohort; independent of quarter.")
+    st.caption("Lead metrics use the selected creation quarter; pipeline uses the selected close quarter. Nurture recovery reflects the current simulated prospect cohort.")
 
-with tabs[0]:
-    section_header(
-        "Executive Overview",
-        "End-to-end health of demand conversion, prospect readiness, routing, and revenue pipeline.",
-    )
+default_weights = {"fit": 40, "intent": 30, "signal_data_confidence": 30}
+default_scored = score_prospects(prospects, default_weights)
+routing_candidates = default_scored[default_scored["review_status"].eq("Approved")].copy()
+routed = route_leads(routing_candidates, rep_capacity)
+routing_sla_breach = routed[
+    routed["routing_status"].eq("Unassigned")
+    & (routed["received_at"] < pd.Timestamp.now() - pd.Timedelta(hours=24))
+]
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Lead-to-Opportunity Rate", f"{lead_to_opportunity_rate:.1f}%")
-    col2.metric("CRM-Ready Prospects", f"{len(overview_ready):,}")
-    col3.metric("Prospects Assigned", f"{overview_routed['routing_status'].eq('Assigned').sum():,}")
-    col4.metric("Open Pipeline", money(coverage["open_pipeline"]))
-
-    st.subheader("Lead recycling & recovery")
-    st.caption("Simulated lifecycle history • daily re-scoring • qualification ≥70 • recovery ≥20 engagement points")
-    a, b, c, d, e = st.columns(5)
-    a.metric("Nurture-to-SQL Recovery", f"{recycling['recovery_rate']:.1f}%",
-             help=f"{recycling['recovered']} recovered SQLs / {recycling['nurture_total']} nurture entrants")
-    b.metric("Cadence Response Rate", f"{recycling['response_rate']:.1f}%",
-             help=f"{recycling['responses']} responders / {recycling['cadence_total']} enrolled")
-    c.metric("Time to First Response", f"{recycling['response_days']:.1f} days" if pd.notna(recycling['response_days']) else "—")
-    d.metric("Unassigned Prospects", f"{recycling['unassigned_before']} → {recycling['unassigned_after']}",
-             help="Before recycling → still awaiting a matching cadence owner. Historical enrollments count as routed.")
-    e.metric("Dormant Leads", recycling['dormant'])
-    st.caption("Below threshold → nurture → re-engaged → SQL. Qualified + unassigned → rep cadence → conversation or nurture. Invalid records have a data-repair action before outreach.")
-
-    assigned_count = int(overview_routed["routing_status"].eq("Assigned").sum())
-    operational_exceptions = pd.DataFrame(
-        {
-            "exception_type": [
-                "MQLs not contacted",
-                "Prospects failing validation",
-                "Awaiting cadence owner",
-            ],
-            "record_count": [
-                int(overview_sla["awaiting_follow_up"]),
-                len(overview_prospects) - len(overview_ready),
-                recycling["unassigned_after"],
-            ],
-        }
-    )
-    left, right = st.columns(2)
-    with left:
-        show_chart(
-            bar_chart(
-                overview_funnel,
-                "lifecycle_stage",
-                "record_count",
-                title="Demand Funnel Snapshot",
-                height=300,
-            ),
-            use_container_width=True,
-        )
-    with right:
-        show_chart(
-            bar_chart(
-                operational_exceptions,
-                "exception_type",
-                "record_count",
-                title="Operational Exceptions Requiring Attention",
-                height=300,
-            ),
-            use_container_width=True,
-        )
-
-    insight(
-        f"{len(overview_ready):,} prospects are validated for CRM delivery, "
-        f"{assigned_count:,} are assigned, and "
-        f"open pipeline totals {money(coverage['open_pipeline'])}."
-    )
-
-with tabs[0]:
-    st.subheader("Pipeline health")
-    risk1, risk2, risk3 = st.columns(3)
-    risk1.metric("Expected Pipeline", money(filtered_open["weighted_pipeline"].sum()))
-    risk2.metric("High-Risk Pipeline", money(filtered_open.loc[filtered_open["ai_risk_level"].eq("High"), "deal_amount"].sum()))
-    risk3.metric("Aging Pipeline (45+ Days)", money(stale_deals(filtered, min_days=45)["deal_amount"].sum()))
-    section_header(
-        "Pipeline Health",
-        "Where open pipeline sits, its expected value after stage probability, and which deals are aging.",
-    )
-
-    stage_pipeline = (
-        filtered_open.groupby("stage", as_index=False)[["deal_amount", "weighted_pipeline"]]
-        .sum()
-        .sort_values("stage", key=lambda values: values.map({stage: i for i, stage in enumerate(OPEN_STAGES)}))
-    )
-    risk_summary = (
-        filtered_open.groupby("ai_risk_level", as_index=False)
-        .agg(deal_count=("deal_id", "count"), pipeline_value=("deal_amount", "sum"))
-        .rename(columns={"ai_risk_level": "deal_risk_level"})
-    )
-    risk_order = {"Low": 0, "Medium": 1, "High": 2}
-    risk_summary["risk_order"] = risk_summary["deal_risk_level"].map(risk_order)
-    risk_summary = risk_summary.sort_values("risk_order")
+with routing_view:
+    route1, route2, route3, route4 = st.columns(4)
+    route1.metric("Assigned Leads", f"{routed['routing_status'].eq('Assigned').sum():,}")
+    route2.metric("Unassigned Queue", f"{routed['routing_status'].eq('Unassigned').sum():,}")
+    route3.metric("Routing SLA Breaches", f"{len(routing_sla_breach):,}")
+    route4.metric("Reps Accepting New Leads", f"{rep_capacity['available'].sum():,}")
 
     st.markdown(
-        "**Deal Risk Level criteria:** Deal notes, stage age, recent activity, expected close date, "
-        "and forecast category."
+        "**Routing criteria:** Approved scoring-review decision → territory match → segment specialization → "
+        "rep accepting new leads → remaining capacity → lowest workload utilization → round-robin tie-break."
     )
-    left, right = st.columns(2)
-    with left:
-        if stage_pipeline.empty:
-            st.warning("No open pipeline matches the selected filters.")
-        else:
-            expected_stage_pipeline = stage_pipeline.rename(
-                columns={"weighted_pipeline": "expected_pipeline_value"}
-            )
-            show_chart(
-                bar_chart(
-                    expected_stage_pipeline,
-                    "stage",
-                    "expected_pipeline_value",
-                    title="Expected Pipeline Value by Stage",
-                ),
-                use_container_width=True,
-            )
-    with right:
-        if risk_summary.empty:
-            st.warning("No open deals are available for risk review under the selected filters.")
-        else:
-            show_chart(
-                bar_chart(
-                    risk_summary,
-                    "deal_risk_level",
-                    "pipeline_value",
-                    title="Open Pipeline by Deal Risk Level",
-                ),
-                use_container_width=True,
-            )
 
-    aged = stale_deals(filtered, min_days=45)
-    aged_value = aged["deal_amount"].sum()
-    insight(f"{money(aged_value)} in open pipeline has been in its current stage for 45+ days.")
-
-    st.markdown("**Forecast Category Legend**")
-    legend_columns = st.columns(5)
-    legend_items = [
-        ("Pipeline", "Active deal; close evidence is incomplete"),
-        ("Best Case", "Could close this period; a material dependency remains"),
-        ("Commit", "Customer-confirmed next step supports closing this period"),
-        ("Closed", "Opportunity is already Closed Won"),
-        ("Omitted", "Excluded because it is lost or not forecastable"),
-    ]
-    for column, (category, definition) in zip(legend_columns, legend_items):
-        column.markdown(f"**{category}**  \n{definition}")
-
+    st.markdown("**Unassigned Lead Queue**")
     friendly_dataframe(
-        aged[
+        routed[routed["routing_status"].eq("Unassigned")][
             [
-                "deal_id",
+                "prospect_id",
                 "account_name",
-                "rep_name",
                 "segment",
-                "stage",
-                "forecast_category",
-                "deal_amount",
-                "days_in_current_stage",
-                "last_activity_date",
+                "territory",
+                "received_at",
             ]
-        ].head(20),
+        ].sort_values("received_at"),
         use_container_width=True,
         hide_index=True,
     )
 
-
-with tabs[1]:
-    section_header(
-        "GTM Funnel & Acquisition Sources",
-        "How demand moves from lead to customer, which sources create revenue, and whether sales follows up on MQLs quickly.",
-    )
-
-    funnel = gtm_funnel(filtered_leads)
-    source_results = source_performance(filtered)
-    sla, _ = sla_summary(filtered_leads, target_hours=24)
-
-    sla1, sla2, sla3 = st.columns(3)
-    sla1.metric(
-        "Contacted Within 24 Hours",
-        f"{sla['within_sla_pct']:.1f}%",
-    )
-    sla2.metric("Median Response Time", f"{sla['median_response_hours']:.1f} hrs")
-    sla3.metric(
-        "MQLs Not Yet Contacted",
-        f"{int(sla['awaiting_follow_up']):,}",
-    )
-
-    left, right = st.columns(2)
-    with left:
-        funnel_fig = px.funnel(
-            funnel,
-            x="record_count",
-            y="lifecycle_stage",
-            title="Lead-to-Customer Funnel",
-            custom_data=["conversion_from_prior_pct"],
-            labels={"record_count": "Records", "lifecycle_stage": "Lifecycle Stage"},
-        )
-        funnel_fig.update_traces(
-            texttemplate="%{value:,} records<br>%{customdata[0]:.1f}% of previous stage"
-        )
-        funnel_fig.update_layout(height=430, margin=dict(l=20, r=20, t=50, b=20))
-        show_chart(funnel_fig, use_container_width=True)
-    with right:
-        source_long = source_results.melt(
-            id_vars="acquisition_source",
-            value_vars=["pipeline_generated", "closed_won_revenue"],
-            var_name="revenue_type",
-            value_name="amount",
-        )
-        source_long["revenue_type"] = source_long["revenue_type"].map(
-            {"pipeline_generated": "Pipeline generated", "closed_won_revenue": "Closed-won revenue"}
-        )
-        show_chart(
-            bar_chart(
-                source_long,
-                "acquisition_source",
-                "amount",
-                color="revenue_type",
-                title="Pipeline and Revenue by Acquisition Source",
-            ),
-            use_container_width=True,
-        )
-
-    st.markdown("**Acquisition Source Performance**")
+    st.markdown("**Rep Capacity and Availability**")
     friendly_dataframe(
-        source_results,
+        rep_capacity,
+        use_container_width=True,
+        hide_index=True,
+        column_config={"available": "Accepting New Leads"},
+    )
+
+with enrichment_view:
+    st.info(
+        "**Process:** This workflow takes raw company and contact records from prospecting providers, "
+        "standardizes email and domain fields, validates their quality, identifies duplicates, "
+        "and produces clean records that are ready for CRM delivery."
+    )
+    stale_cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
+    enrich1, enrich2, enrich3, enrich4 = st.columns(4)
+    enrich1.metric("Canonical Prospects", f"{len(prospects):,}")
+    enrich2.metric("Valid Email Rate", f"{prospects['email_valid'].mean() * 100:.1f}%")
+    enrich3.metric("Duplicates Blocked", f"{prospects['is_duplicate'].sum():,}")
+    enrich4.metric("Records Older Than 30 Days", f"{(prospects['source_updated_at'] < stale_cutoff).sum():,}")
+
+    provider_quality = prospects.assign(
+        fresh_record=prospects["source_updated_at"] >= stale_cutoff,
+    ).groupby("source_provider", as_index=False).agg(
+        records=("prospect_id", "count"),
+        valid_email_rate=("email_valid", "mean"),
+        valid_domain_rate=("domain_valid", "mean"),
+        duplicate_rate=("is_duplicate", "mean"),
+        fresh_record_rate=("fresh_record", "mean"),
+        average_confidence=("source_confidence", "mean"),
+    )
+    for column in ["valid_email_rate", "valid_domain_rate", "duplicate_rate", "fresh_record_rate", "average_confidence"]:
+        provider_quality[column] = (provider_quality[column] * 100).round(1)
+    st.markdown("**Provider Data Quality**")
+    friendly_dataframe(
+        provider_quality,
+        use_container_width=True,
+        hide_index=True,
+        column_config={column: st.column_config.NumberColumn(friendly_column_name(column), format="%.1f%%") for column in [
+            "valid_email_rate", "valid_domain_rate", "duplicate_rate", "fresh_record_rate", "average_confidence"
+        ]},
+    )
+
+    st.markdown("**Validated and Enriched Prospects Ready for CRM**")
+    enrichment_display = prospects[
+        ~prospects["is_duplicate"] & prospects["email_valid"] & prospects["domain_valid"]
+    ].copy()
+    enrichment_display["source_confidence_pct"] = enrichment_display["source_confidence"] * 100
+    friendly_dataframe(
+        enrichment_display[
+            [
+                "prospect_id",
+                "account_name",
+                "canonical_domain",
+                "contact_name",
+                "job_title",
+                "canonical_email",
+                "segment",
+                "territory",
+                "employee_count",
+                "website_visits_30d",
+                "content_engagements_30d",
+                "pricing_page_views_30d",
+                "source_provider",
+                "source_confidence_pct",
+                "source_updated_at",
+            ]
+        ].head(100),
         use_container_width=True,
         hide_index=True,
         column_config={
-            "acquisition_source": "Acquisition source",
-            "pipeline_generated": st.column_config.NumberColumn("Pipeline generated", format="$%d"),
-            "closed_won_revenue": st.column_config.NumberColumn("Closed-won revenue", format="$%d"),
-            "opportunity_count": "Opportunities",
-            "revenue_conversion_pct": st.column_config.NumberColumn("Revenue conversion", format="%.1f%%"),
+            "source_confidence_pct": st.column_config.NumberColumn("Source confidence", format="%.0f%%"),
+            "website_visits_30d": "Website Visits (30 Days)",
+            "content_engagements_30d": "Content Engagements (30 Days)",
+            "pricing_page_views_30d": "Pricing Page Views (30 Days)",
         },
     )
 
-    st.caption(
-        "This section summarizes marketing-to-sales response performance. "
-        "Record-level assignment exceptions are managed in GTM Operations > Lead Routing."
-    )
-
-with tabs[2]:
-    section_header(
-        "GTM Operations",
-        "Operational controls for enrichment, scoring review, and routing.",
-    )
-
-    enrichment_view, scoring_view, routing_view, recycling_view = st.tabs(
-        [
-            "1. Prospecting & Enrichment",
-            "2. Scoring & Review",
-            "3. Lead Routing",
-            "4. Lead Recycling",
-        ]
-    )
-
-    default_weights = {"fit": 40, "intent": 30, "signal_data_confidence": 30}
-    default_scored = score_prospects(prospects, default_weights)
-    routing_candidates = default_scored[default_scored["review_status"].eq("Approved")].copy()
-    routed = route_leads(routing_candidates, rep_capacity)
-    routing_sla_breach = routed[
-        routed["routing_status"].eq("Unassigned")
-        & (routed["received_at"] < pd.Timestamp.now() - pd.Timedelta(hours=24))
+with scoring_view:
+    scoring_eligible = prospects[
+        prospects["email_valid"]
+        & prospects["domain_valid"]
+        & ~prospects["is_duplicate"]
     ]
+    excluded_from_scoring = len(prospects) - len(scoring_eligible)
+    st.caption(
+        "Only unique prospects with a valid email and domain enter scoring. "
+        f"{excluded_from_scoring:,} records are currently excluded by this data-quality gate. "
+        "Adjust the component weights below; eligible scores recalculate immediately and normalize to 100%."
+    )
+    weight1, weight2, weight3 = st.columns(3)
+    fit_weight = weight1.slider("Fit (segment, size, role)", 0, 100, 40, 5)
+    intent_weight = weight2.slider("Intent (visits, content, pricing)", 0, 100, 30, 5)
+    signal_data_weight = weight3.slider(
+        "Signal & data confidence (recency, corroboration, source, freshness)", 0, 100, 30, 5
+    )
+    scored = score_prospects(
+        prospects,
+        {
+            "fit": fit_weight,
+            "intent": intent_weight,
+            "signal_data_confidence": signal_data_weight,
+        },
+    )
 
-    with routing_view:
-        route1, route2, route3, route4 = st.columns(4)
-        route1.metric("Assigned Leads", f"{routed['routing_status'].eq('Assigned').sum():,}")
-        route2.metric("Unassigned Queue", f"{routed['routing_status'].eq('Unassigned').sum():,}")
-        route3.metric("Routing SLA Breaches", f"{len(routing_sla_breach):,}")
-        route4.metric("Reps Accepting New Leads", f"{rep_capacity['available'].sum():,}")
-
-        st.markdown(
-            "**Routing criteria:** Approved scoring-review decision → territory match → segment specialization → "
-            "rep accepting new leads → remaining capacity → lowest workload utilization → round-robin tie-break."
-        )
-
-        st.markdown("**Unassigned Lead Queue**")
-        friendly_dataframe(
-            routed[routed["routing_status"].eq("Unassigned")][
-                [
-                    "prospect_id",
-                    "account_name",
-                    "segment",
-                    "territory",
-                    "received_at",
-                ]
-            ].sort_values("received_at"),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.markdown("**Rep Capacity and Availability**")
-        friendly_dataframe(
-            rep_capacity,
-            use_container_width=True,
-            hide_index=True,
-            column_config={"available": "Accepting New Leads"},
-        )
-
-    with enrichment_view:
-        st.info(
-            "**Process:** This workflow takes raw company and contact records from prospecting providers, "
-            "standardizes email and domain fields, validates their quality, identifies duplicates, "
-            "and produces clean records that are ready for CRM delivery."
-        )
-        stale_cutoff = pd.Timestamp.now() - pd.Timedelta(days=30)
-        enrich1, enrich2, enrich3, enrich4 = st.columns(4)
-        enrich1.metric("Canonical Prospects", f"{len(prospects):,}")
-        enrich2.metric("Valid Email Rate", f"{prospects['email_valid'].mean() * 100:.1f}%")
-        enrich3.metric("Duplicates Blocked", f"{prospects['is_duplicate'].sum():,}")
-        enrich4.metric("Records Older Than 30 Days", f"{(prospects['source_updated_at'] < stale_cutoff).sum():,}")
-
-        provider_quality = prospects.assign(
-            fresh_record=prospects["source_updated_at"] >= stale_cutoff,
-        ).groupby("source_provider", as_index=False).agg(
-            records=("prospect_id", "count"),
-            valid_email_rate=("email_valid", "mean"),
-            valid_domain_rate=("domain_valid", "mean"),
-            duplicate_rate=("is_duplicate", "mean"),
-            fresh_record_rate=("fresh_record", "mean"),
-            average_confidence=("source_confidence", "mean"),
-        )
-        for column in ["valid_email_rate", "valid_domain_rate", "duplicate_rate", "fresh_record_rate", "average_confidence"]:
-            provider_quality[column] = (provider_quality[column] * 100).round(1)
-        st.markdown("**Provider Data Quality**")
-        friendly_dataframe(
-            provider_quality,
-            use_container_width=True,
-            hide_index=True,
-            column_config={column: st.column_config.NumberColumn(friendly_column_name(column), format="%.1f%%") for column in [
-                "valid_email_rate", "valid_domain_rate", "duplicate_rate", "fresh_record_rate", "average_confidence"
-            ]},
-        )
-
-        st.markdown("**Validated and Enriched Prospects Ready for CRM**")
-        enrichment_display = prospects[
-            ~prospects["is_duplicate"] & prospects["email_valid"] & prospects["domain_valid"]
-        ].copy()
-        enrichment_display["source_confidence_pct"] = enrichment_display["source_confidence"] * 100
-        friendly_dataframe(
-            enrichment_display[
-                [
-                    "prospect_id",
-                    "account_name",
-                    "canonical_domain",
-                    "contact_name",
-                    "job_title",
-                    "canonical_email",
-                    "segment",
-                    "territory",
-                    "employee_count",
-                    "website_visits_30d",
-                    "content_engagements_30d",
-                    "pricing_page_views_30d",
-                    "source_provider",
-                    "source_confidence_pct",
-                    "source_updated_at",
-                ]
-            ].head(100),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "source_confidence_pct": st.column_config.NumberColumn("Source confidence", format="%.0f%%"),
-                "website_visits_30d": "Website Visits (30 Days)",
-                "content_engagements_30d": "Content Engagements (30 Days)",
-                "pricing_page_views_30d": "Pricing Page Views (30 Days)",
-            },
-        )
-
-    with scoring_view:
-        scoring_eligible = prospects[
-            prospects["email_valid"]
-            & prospects["domain_valid"]
-            & ~prospects["is_duplicate"]
-        ]
-        excluded_from_scoring = len(prospects) - len(scoring_eligible)
-        st.caption(
-            "Only unique prospects with a valid email and domain enter scoring. "
-            f"{excluded_from_scoring:,} records are currently excluded by this data-quality gate. "
-            "Adjust the component weights below; eligible scores recalculate immediately and normalize to 100%."
-        )
-        weight1, weight2, weight3 = st.columns(3)
-        fit_weight = weight1.slider("Fit (segment, size, role)", 0, 100, 40, 5)
-        intent_weight = weight2.slider("Intent (visits, content, pricing)", 0, 100, 30, 5)
-        signal_data_weight = weight3.slider(
-            "Signal & data confidence (recency, corroboration, source, freshness)", 0, 100, 30, 5
-        )
-        scored = score_prospects(
-            prospects,
-            {
-                "fit": fit_weight,
-                "intent": intent_weight,
-                "signal_data_confidence": signal_data_weight,
-            },
-        )
-
-        score_summary = pd.DataFrame(
-            {
-                "score_component": ["Fit", "Intent", "Signal & data confidence", "Weighted total"],
-                "average_score": [
-                    scored["fit_score"].mean(),
-                    scored["intent_score"].mean(),
-                    scored["signal_data_confidence_score"].mean(),
-                    scored["total_score"].mean(),
-                ],
-            }
-        )
-        show_chart(
-            bar_chart(score_summary, "score_component", "average_score", title="Average Score by Component"),
-            use_container_width=True,
-        )
-
-        st.markdown("**Human Review Gate · What-if Preview**")
-        st.caption("Edits preview review decisions only; operational routing and recycling use source decisions and default weights.")
-        review_candidates = scored.sort_values("total_score", ascending=False).head(40)[
-            [
-                "prospect_id",
-                "account_name",
-                "segment",
-                "fit_score",
-                "intent_score",
-                "signal_data_confidence_score",
-                "total_score",
-                "review_status",
-                "reviewer_reason",
-            ]
-        ]
-        edited_reviews = friendly_data_editor(
-            review_candidates,
-            use_container_width=True,
-            hide_index=True,
-            disabled=[
-                "prospect_id",
-                "account_name",
-                "segment",
-                "fit_score",
-                "intent_score",
-                "signal_data_confidence_score",
-                "total_score",
+    score_summary = pd.DataFrame(
+        {
+            "score_component": ["Fit", "Intent", "Signal & data confidence", "Weighted total"],
+            "average_score": [
+                scored["fit_score"].mean(),
+                scored["intent_score"].mean(),
+                scored["signal_data_confidence_score"].mean(),
+                scored["total_score"].mean(),
             ],
-            column_config={
-                "review_status": st.column_config.SelectboxColumn("Decision", options=REVIEW_STATUSES),
-                "reviewer_reason": st.column_config.SelectboxColumn("Reason code", options=REVIEW_REASONS),
-                "total_score": st.column_config.NumberColumn("Weighted score", format="%.1f"),
-            },
-            key="review_gate",
-        )
+        }
+    )
+    show_chart(
+        bar_chart(score_summary, "score_component", "average_score", title="Average Score by Component"),
+        use_container_width=True,
+    )
+
+    st.markdown("**Human Review Gate · What-if Preview**")
+    st.caption("Edits preview review decisions only; operational routing and recycling use source decisions and default weights.")
+    review_candidates = scored.sort_values("total_score", ascending=False).head(40)[
+        [
+            "prospect_id",
+            "account_name",
+            "segment",
+            "fit_score",
+            "intent_score",
+            "signal_data_confidence_score",
+            "total_score",
+            "review_status",
+            "reviewer_reason",
+        ]
+    ]
+    edited_reviews = friendly_data_editor(
+        review_candidates,
+        use_container_width=True,
+        hide_index=True,
+        disabled=[
+            "prospect_id",
+            "account_name",
+            "segment",
+            "fit_score",
+            "intent_score",
+            "signal_data_confidence_score",
+            "total_score",
+        ],
+        column_config={
+            "review_status": st.column_config.SelectboxColumn("Decision", options=REVIEW_STATUSES),
+            "reviewer_reason": st.column_config.SelectboxColumn("Reason code", options=REVIEW_REASONS),
+            "total_score": st.column_config.NumberColumn("Weighted score", format="%.1f"),
+        },
+        key="review_gate",
+    )
 
 
-    with recycling_view:
-        st.subheader("Nurture & multi-touch sales cadence")
-        st.info("Portfolio simulation: synthetic activity and dates, no emails sent or live scheduled jobs. The lifecycle uses the default 40/30/30 score and saved source review decisions. Scoring controls above are a what-if preview.")
-        st.caption("Cadence owners are balanced within territory and segment among available reps using a separate simulated cadence workload. Direct-call capacity remains unchanged. Missing coverage stays visible for manager action.")
-        left, right = st.columns(2)
-        with left:
-            st.markdown("**Automated nurture**")
-            st.write("Four educational emails on days 0, 7, 14 and 21. Daily re-scoring promotes at 20 points; 90 days with no engagement becomes dormant. Invalid/duplicate records require repair before enrollment.")
-            friendly_dataframe(pd.DataFrame(EVENT_POINTS.items(), columns=["engagement_event", "points"]), hide_index=True, use_container_width=True)
-        with right:
-            st.markdown("**Rep-led cadence · business days**")
-            friendly_dataframe(pd.DataFrame(CADENCE, columns=["business_day", "action"]), hide_index=True, use_container_width=True)
-            st.write("A response stops the cadence and opens a live conversation. No response after day 10 enters nurture. All records retain their history.")
-        state_filter = st.multiselect("Lifecycle status", ["active", "nurture", "re-engaged", "dormant"])
-        records = lifecycle[lifecycle.status.isin(state_filter)] if state_filter else lifecycle
-        display_columns = ["prospect_id", "account_name", "segment", "territory", "status", "lifecycle_stage",
-                           "nurture_entry_date", "engagement_score", "engagement_events", "nurture_touch_count",
-                           "re_engagement_date", "cadence_status", "cadence_step", "assigned_rep",
-                           "cadence_start_date", "last_touch_date", "response_date", "next_action"]
-        friendly_dataframe(records[display_columns], hide_index=True, use_container_width=True)
-        st.download_button("Download lifecycle records", records[display_columns].to_csv(index=False), "lead-lifecycle.csv", "text/csv")
+with recycling_view:
+    st.subheader("Nurture & multi-touch sales cadence")
+    st.info("Portfolio simulation: synthetic activity and dates, no emails sent or live scheduled jobs. The lifecycle uses the default 40/30/30 score and saved source review decisions. The Scoring & Review tab is a what-if preview.")
+    st.caption("Cadence owners are balanced within territory and segment among available reps using a separate simulated cadence workload. Direct-call capacity remains unchanged. Missing coverage stays visible for manager action.")
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**Automated nurture**")
+        st.write("Four educational emails on days 0, 7, 14 and 21. Daily re-scoring promotes at 20 points; 90 days with no engagement becomes dormant. Invalid/duplicate records require repair before enrollment.")
+        friendly_dataframe(pd.DataFrame(EVENT_POINTS.items(), columns=["engagement_event", "points"]), hide_index=True, use_container_width=True)
+    with right:
+        st.markdown("**Rep-led cadence · business days**")
+        friendly_dataframe(pd.DataFrame(CADENCE, columns=["business_day", "action"]), hide_index=True, use_container_width=True)
+        st.write("A response stops the cadence and opens a live conversation. No response after day 10 enters nurture. All records retain their history.")
+    state_filter = st.multiselect("Lifecycle status", ["active", "nurture", "re-engaged", "dormant"])
+    records = lifecycle[lifecycle.status.isin(state_filter)] if state_filter else lifecycle
+    display_columns = ["prospect_id", "account_name", "segment", "territory", "status", "lifecycle_stage",
+                       "nurture_entry_date", "engagement_score", "engagement_events", "nurture_touch_count",
+                       "re_engagement_date", "cadence_status", "cadence_step", "assigned_rep",
+                       "cadence_start_date", "last_touch_date", "response_date", "next_action"]
+    friendly_dataframe(records[display_columns], hide_index=True, use_container_width=True)
+    st.download_button("Download lifecycle records", records[display_columns].to_csv(index=False), "lead-lifecycle.csv", "text/csv")

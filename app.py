@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import importlib
+import os
+import uuid
 from pathlib import Path
 
 import pandas as pd
@@ -15,7 +17,7 @@ from src.gtm_operations import (
 )
 from src.metrics import filter_deals
 from src.risk_scoring import add_risk_scores
-from src.lifecycle import CADENCE, EVENT_POINTS, simulate_lifecycle, lifecycle_metrics
+from src.workflow import Workflow
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -206,16 +208,26 @@ filtered_leads = leads[leads["lead_quarter"] == selected_quarter].copy()
 if selected_segments:
     filtered_leads = filtered_leads[filtered_leads["segment"].isin(selected_segments)]
 
-prospects = prospects[prospects["segment"].isin(selected_segments)].copy() if selected_segments else prospects
-overview_prospects = prospects.copy()
-overview_scored = score_prospects(
-    overview_prospects,
-    {"fit": 40, "intent": 30, "signal_data_confidence": 30},
-)
-overview_routing_candidates = overview_scored[overview_scored["review_status"].eq("Approved")].copy()
-overview_routed = route_leads(overview_routing_candidates, rep_capacity)
-lifecycle = simulate_lifecycle(overview_prospects, overview_scored, overview_routed, rep_capacity)
-recycling = lifecycle_metrics(lifecycle)
+# Process the entire cohort before presentation filters so capacity and history stay stable.
+all_scored = score_prospects(prospects, {"fit": 40, "intent": 30, "signal_data_confidence": 30})
+workflow_input = prospects.merge(all_scored[["prospect_id", "total_score"]], on="prospect_id", how="left")
+workflow_input["total_score"] = workflow_input["total_score"].fillna(0)
+workflow = Workflow(os.environ.get("WORKFLOW_DB", str(DATA_DIR / "sample-workflow.sqlite")))
+try:
+    lifecycle = workflow.run(workflow_input, rep_capacity)
+    movements = workflow.movements()
+    actions = workflow.actions()
+finally:
+    workflow.close()
+if selected_segments:
+    prospects = prospects[prospects["segment"].isin(selected_segments)].copy()
+    lifecycle = lifecycle[lifecycle["segment"].isin(selected_segments)].copy()
+    movements = movements[movements.lead_id.isin(lifecycle.prospect_id)]
+    actions = actions[actions.lead_id.isin(lifecycle.prospect_id)]
+nurture_total = lifecycle.nurture_entry_date.notna().sum()
+recovered = lifecycle.re_engagement_date.notna().sum()
+recycling = {"nurture_total": int(nurture_total), "recovered": int(recovered),
+             "recovery_rate": 100 * recovered / nurture_total if nurture_total else 0}
 lead_to_mql_rate = filtered_leads["mql_date"].notna().mean() * 100 if len(filtered_leads) else None
 # Explicit attribution convention for this synthetic marketing portfolio.
 marketing_sources = ["Inbound", "Paid Search", "Events"]
@@ -237,52 +249,19 @@ with overview_view:
     c.metric("Marketing-Sourced Pipeline", money(marketing_pipeline),
              help="Total opportunity value from Inbound, Paid Search, and Events with a close date in the reporting quarter, across all deal stages. Outbound, Partners, and Referrals are excluded.")
     d.metric("Nurture-to-SQL Recovery", f"{recycling['recovery_rate']:.1f}%" if recycling['nurture_total'] else "—",
-             help=f"{recycling['recovered']} recovered SQLs / {recycling['nurture_total']} nurture entrants in the current simulated prospect cohort; independent of quarter.")
-    st.caption("Lead metrics use the selected creation quarter; pipeline uses the selected close quarter. Nurture recovery reflects the current simulated prospect cohort.")
-
-default_weights = {"fit": 40, "intent": 30, "signal_data_confidence": 30}
-default_scored = score_prospects(prospects, default_weights)
-routing_candidates = default_scored[default_scored["review_status"].eq("Approved")].copy()
-routed = route_leads(routing_candidates, rep_capacity)
-routing_sla_breach = routed[
-    routed["routing_status"].eq("Unassigned")
-    & (routed["received_at"] < pd.Timestamp.now() - pd.Timedelta(hours=24))
-]
+             help=f"{recycling['recovered']} recovered SQLs / {recycling['nurture_total']} nurture entrants in the current prospect cohort; independent of quarter.")
+    st.caption("Lead metrics use the selected creation quarter; pipeline uses the selected close quarter. Nurture recovery reflects the current prospect cohort.")
 
 with routing_view:
-    route1, route2, route3, route4 = st.columns(4)
-    route1.metric("Assigned Leads", f"{routed['routing_status'].eq('Assigned').sum():,}")
-    route2.metric("Unassigned Queue", f"{routed['routing_status'].eq('Unassigned').sum():,}")
-    route3.metric("Routing SLA Breaches", f"{len(routing_sla_breach):,}")
-    route4.metric("Reps Accepting New Leads", f"{rep_capacity['available'].sum():,}")
-
-    st.markdown(
-        "**Routing criteria:** Approved scoring-review decision → territory match → segment specialization → "
-        "rep accepting new leads → remaining capacity → lowest workload utilization → round-robin tie-break."
-    )
-
-    st.markdown("**Unassigned Lead Queue**")
-    friendly_dataframe(
-        routed[routed["routing_status"].eq("Unassigned")][
-            [
-                "prospect_id",
-                "account_name",
-                "segment",
-                "territory",
-                "received_at",
-            ]
-        ].sort_values("received_at"),
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    st.markdown("**Rep Capacity and Availability**")
-    friendly_dataframe(
-        rep_capacity,
-        use_container_width=True,
-        hide_index=True,
-        column_config={"available": "Accepting New Leads"},
-    )
+    st.subheader("Lead ownership")
+    owned = lifecycle.assigned_rep.ne("")
+    awaiting = lifecycle.lifecycle_stage.eq("MQL") & ~owned & ~lifecycle.blocked
+    a, b = st.columns(2)
+    a.metric("Assigned Leads", int(owned.sum()))
+    b.metric("Awaiting Owner", int(awaiting.sum()))
+    friendly_dataframe(lifecycle[["prospect_id", "account_name", "segment", "territory", "lifecycle_stage", "assigned_rep", "next_action"]], hide_index=True, use_container_width=True)
+    with st.expander("Rep capacity and availability"):
+        friendly_dataframe(rep_capacity, hide_index=True, use_container_width=True)
 
 with enrichment_view:
     st.info(
@@ -361,25 +340,8 @@ with scoring_view:
         & ~prospects["is_duplicate"]
     ]
     excluded_from_scoring = len(prospects) - len(scoring_eligible)
-    st.caption(
-        "Only unique prospects with a valid email and domain enter scoring. "
-        f"{excluded_from_scoring:,} records are currently excluded by this data-quality gate. "
-        "Adjust the component weights below; eligible scores recalculate immediately and normalize to 100%."
-    )
-    weight1, weight2, weight3 = st.columns(3)
-    fit_weight = weight1.slider("Fit (segment, size, role)", 0, 100, 40, 5)
-    intent_weight = weight2.slider("Intent (visits, content, pricing)", 0, 100, 30, 5)
-    signal_data_weight = weight3.slider(
-        "Signal & data confidence (recency, corroboration, source, freshness)", 0, 100, 30, 5
-    )
-    scored = score_prospects(
-        prospects,
-        {
-            "fit": fit_weight,
-            "intent": intent_weight,
-            "signal_data_confidence": signal_data_weight,
-        },
-    )
+    st.caption(f"{excluded_from_scoring:,} records need data repair. Valid leads are scored automatically; a score of 70 qualifies for routing.")
+    scored = score_prospects(prospects, {"fit": 40, "intent": 30, "signal_data_confidence": 30})
 
     score_summary = pd.DataFrame(
         {
@@ -397,61 +359,33 @@ with scoring_view:
         use_container_width=True,
     )
 
-    st.markdown("**Human Review Gate · What-if Preview**")
-    st.caption("Edits preview review decisions only; operational routing and recycling use source decisions and default weights.")
-    review_candidates = scored.sort_values("total_score", ascending=False).head(40)[
-        [
-            "prospect_id",
-            "account_name",
-            "segment",
-            "fit_score",
-            "intent_score",
-            "signal_data_confidence_score",
-            "total_score",
-            "review_status",
-            "reviewer_reason",
-        ]
-    ]
-    edited_reviews = friendly_data_editor(
-        review_candidates,
-        use_container_width=True,
-        hide_index=True,
-        disabled=[
-            "prospect_id",
-            "account_name",
-            "segment",
-            "fit_score",
-            "intent_score",
-            "signal_data_confidence_score",
-            "total_score",
-        ],
-        column_config={
-            "review_status": st.column_config.SelectboxColumn("Decision", options=REVIEW_STATUSES),
-            "reviewer_reason": st.column_config.SelectboxColumn("Reason code", options=REVIEW_REASONS),
-            "total_score": st.column_config.NumberColumn("Weighted score", format="%.1f"),
-        },
-        key="review_gate",
-    )
-
+    friendly_dataframe(scored[["prospect_id", "account_name", "segment", "fit_score", "intent_score", "signal_data_confidence_score", "total_score"]], hide_index=True, use_container_width=True)
 
 with recycling_view:
-    st.subheader("Nurture & multi-touch sales cadence")
-    st.info("Portfolio simulation: synthetic activity and dates, no emails sent or live scheduled jobs. The lifecycle uses the default 40/30/30 score and saved source review decisions. The Scoring & Review tab is a what-if preview.")
-    st.caption("Cadence owners are balanced within territory and segment among available reps using a separate simulated cadence workload. Direct-call capacity remains unchanged. Missing coverage stays visible for manager action.")
-    left, right = st.columns(2)
-    with left:
-        st.markdown("**Automated nurture**")
-        st.write("Four educational emails on days 0, 7, 14 and 21. Daily re-scoring promotes at 20 points; 90 days with no engagement becomes dormant. Invalid/duplicate records require repair before enrollment.")
-        friendly_dataframe(pd.DataFrame(EVENT_POINTS.items(), columns=["engagement_event", "points"]), hide_index=True, use_container_width=True)
-    with right:
-        st.markdown("**Rep-led cadence · business days**")
-        friendly_dataframe(pd.DataFrame(CADENCE, columns=["business_day", "action"]), hide_index=True, use_container_width=True)
-        st.write("A response stops the cadence and opens a live conversation. No response after day 10 enters nurture. All records retain their history.")
-    state_filter = st.multiselect("Lifecycle status", ["active", "nurture", "re-engaged", "dormant"])
-    records = lifecycle[lifecycle.status.isin(state_filter)] if state_filter else lifecycle
-    display_columns = ["prospect_id", "account_name", "segment", "territory", "status", "lifecycle_stage",
-                       "nurture_entry_date", "engagement_score", "engagement_events", "nurture_touch_count",
-                       "re_engagement_date", "cadence_status", "cadence_step", "assigned_rep",
-                       "cadence_start_date", "last_touch_date", "response_date", "next_action"]
+    st.subheader("Lead action center")
+    pending = actions[actions.status.eq("pending")]
+    a, b, c = st.columns(3)
+    a.metric("In Nurture", int(lifecycle.status.eq("nurture").sum()))
+    b.metric("Recovered SQLs", recycling["recovered"])
+    c.metric("Needs Attention", int((lifecycle.blocked | (lifecycle.lifecycle_stage.isin(["MQL", "SQL"]) & lifecycle.assigned_rep.eq(""))).sum()))
+    st.caption("Sample data · stage rules active · external delivery not connected")
+    state_filter = st.multiselect("Pipeline stage", ["Lead", "MQL", "Nurture", "SQL", "Opportunity", "Customer", "Dormant"])
+    records = lifecycle[lifecycle.lifecycle_stage.isin(state_filter)] if state_filter else lifecycle
+    display_columns = ["prospect_id", "account_name", "lifecycle_stage", "assigned_rep", "engagement_score", "next_action"]
     friendly_dataframe(records[display_columns], hide_index=True, use_container_width=True)
-    st.download_button("Download lifecycle records", records[display_columns].to_csv(index=False), "lead-lifecycle.csv", "text/csv")
+    st.markdown("**Pending actions**")
+    friendly_dataframe(pending[["lead_id", "kind", "status", "created_at"]], hide_index=True, use_container_width=True)
+    st.markdown("**Automatic pipeline movements**")
+    friendly_dataframe(movements, hide_index=True, use_container_width=True)
+    with st.expander("Record an activity"):
+        lead_id = st.selectbox("Lead", lifecycle.prospect_id.tolist())
+        event_type = st.selectbox("Activity", ["open", "click", "site revisit", "download", "reply", "opportunity_created", "customer_won"])
+        if st.button("Apply activity", disabled=not lead_id):
+            workflow = Workflow(os.environ.get("WORKFLOW_DB", str(DATA_DIR / "sample-workflow.sqlite")))
+            try:
+                workflow.run(workflow_input, rep_capacity, [{"event_id": str(uuid.uuid4()), "prospect_id": lead_id,
+                    "type": event_type, "occurred_at": pd.Timestamp.now(tz="UTC").isoformat()}])
+            finally:
+                workflow.close()
+            st.rerun()
+    st.download_button("Download lead records", records.to_csv(index=False), "lead-lifecycle.csv", "text/csv")

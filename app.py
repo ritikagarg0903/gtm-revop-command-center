@@ -299,7 +299,6 @@ with routing_view:
     a.metric("Assigned Leads", int(owned.sum()))
     b.metric("Awaiting Owner", int(awaiting.sum()))
     friendly_dataframe(lifecycle[["prospect_id", "account_name", "segment", "territory", "lifecycle_stage", "assigned_rep", "next_action"]], hide_index=True, use_container_width=True)
-    company_brief(prospects[prospects.prospect_id.isin(lifecycle.prospect_id)], "routing")
     with st.expander("Rep capacity and availability"):
         friendly_dataframe(rep_capacity, hide_index=True, use_container_width=True)
 
@@ -338,7 +337,6 @@ with enrichment_view:
     enrichment_display = prospects[
         ~prospects["is_duplicate"] & prospects["email_valid"] & prospects["domain_valid"]
     ].copy()
-    company_brief(enrichment_display, "enrichment")
     friendly_dataframe(
         enrichment_display[
             [

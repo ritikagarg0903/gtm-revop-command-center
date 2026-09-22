@@ -49,7 +49,7 @@ The **Executive Overview** summarizes the health of this operating model across 
 - Marketing-to-sales response SLA summary
 - Provider-quality comparison using validity, duplicate rate, freshness, and source confidence
 - Validated and enriched prospect records ready for CRM delivery
-- Configurable three-component scoring across fit, intent, and combined signal and data confidence
+- Configurable two-component scoring across fit, intent, and combined signal and data confidence
 - Human approve, reject, and hold review gate with reason codes
 - Approved-only routing using territory, segment specialization, rep availability, remaining capacity, lowest workload utilization, and round-robin tie-breaking
 - Expected pipeline value and deal risk by sales stage
@@ -69,15 +69,12 @@ Funnel and acquisition-source views, pipeline risk/aging details, and additional
 
 ## Scoring Method
 
-Prospect scores are transparent and configurable. Before scoring, a data-quality eligibility gate excludes records with an invalid email, invalid domain, or duplicate identity:
+Only unique prospects with valid email and domain data enter scoring. These validation checks are prerequisites, not score components.
 
-- **Fit:** segment, company size, and role
-- **Intent:** website visits, content engagement, and pricing-page views in the last 30 days
-- **Signal & data confidence:** signal recency, corroboration, source confidence, and record freshness. This combines the former signal-quality and data-confidence components; email and domain validity remain prerequisites in the scoring eligibility gate.
+- **Fit (57.1%):** segment, company size, and role.
+- **Intent (42.9%):** website visits, content engagement, and pricing-page views in the last 30 days.
 
-The component weights are normalized to 100%. A human review gate remains between scoring and routing so the score informs a decision rather than automatically activating every prospect.
-
-Default weights are **Fit 40%**, **Intent 30%**, and **Signal & Data Confidence 30%**. Within the combined component, the former signal-quality score contributes two-thirds and the former data-confidence score contributes one-third, preserving the prior 20% and 10% contributions.
+The exact formula is `(4 × Fit + 3 × Intent) / 7`, rounded to one decimal. It preserves the previous relative Fit/Intent weighting while removing signal and data confidence entirely. A score of 70 qualifies a new lead for automatic routing; lower scores enter nurture. The chart, score table, workflow input and generated sample qualification use this same model.
 
 ## Routing Criteria
 
@@ -180,7 +177,7 @@ Validate with `python -m unittest discover -s tests -v`.
 
 ## Automatic Workflow
 
-The dashboard now uses a persistent rules engine with event deduplication, automatic pipeline transitions, capacity-aware assignment, pending delivery actions, and a movement audit trail. Scoring uses the fixed 40/30/30 model; the former what-if review editor is removed. The historical simulation module remains only for reference tests. See [Automatic workflow](docs/automatic-workflow.md) for rules, worker execution, data contracts, and deferred integration requirements.
+The dashboard now uses a persistent rules engine with event deduplication, automatic pipeline transitions, capacity-aware assignment, pending delivery actions, and a movement audit trail. Scoring uses the Fit/Intent-only model (4:3 weighting); the former what-if review editor is removed. The historical simulation module remains only for reference tests. See [Automatic workflow](docs/automatic-workflow.md) for rules, worker execution, data contracts, and deferred integration requirements.
 
 ## Company context for sales
 

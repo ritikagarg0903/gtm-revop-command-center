@@ -9,6 +9,7 @@ import plotly.express as px
 import streamlit as st
 
 from src.gtm_operations import (
+    DEFAULT_SCORING_WEIGHTS,
     REVIEW_REASONS,
     REVIEW_STATUSES,
     route_leads,
@@ -30,7 +31,7 @@ QUOTAS_PATH = DATA_DIR / "rep_quotas.csv"
 LEADS_PATH = DATA_DIR / "synthetic_leads.csv"
 PROSPECTS_PATH = DATA_DIR / "synthetic_prospects.csv"
 REP_CAPACITY_PATH = DATA_DIR / "rep_capacity.csv"
-DATA_SCHEMA_VERSION = 4
+DATA_SCHEMA_VERSION = 5
 
 
 st.set_page_config(
@@ -213,7 +214,7 @@ if selected_segments:
     filtered_leads = filtered_leads[filtered_leads["segment"].isin(selected_segments)]
 
 # Process the entire cohort before presentation filters so capacity and history stay stable.
-all_scored = score_prospects(prospects, {"fit": 40, "intent": 30, "signal_data_confidence": 30})
+all_scored = score_prospects(prospects, DEFAULT_SCORING_WEIGHTS)
 workflow_input = prospects.merge(all_scored[["prospect_id", "total_score"]], on="prospect_id", how="left")
 workflow_input["total_score"] = workflow_input["total_score"].fillna(0)
 workflow = Workflow(os.environ.get("WORKFLOW_DB", str(DATA_DIR / "sample-workflow.sqlite")))
@@ -394,16 +395,15 @@ with scoring_view:
         & ~prospects["is_duplicate"]
     ]
     excluded_from_scoring = len(prospects) - len(scoring_eligible)
-    st.caption(f"{excluded_from_scoring:,} records need data repair. Valid leads are scored automatically; a score of 70 qualifies for routing.")
-    scored = score_prospects(prospects, {"fit": 40, "intent": 30, "signal_data_confidence": 30})
+    st.caption(f"{excluded_from_scoring:,} records need data repair. Scoring uses Fit (57.1%) and Intent (42.9%) only; a score of 70 qualifies for routing.")
+    scored = score_prospects(prospects, DEFAULT_SCORING_WEIGHTS)
 
     score_summary = pd.DataFrame(
         {
-            "score_component": ["Fit", "Intent", "Signal & data confidence", "Weighted total"],
+            "score_component": ["Fit", "Intent", "Weighted total"],
             "average_score": [
                 scored["fit_score"].mean(),
                 scored["intent_score"].mean(),
-                scored["signal_data_confidence_score"].mean(),
                 scored["total_score"].mean(),
             ],
         }
@@ -413,7 +413,7 @@ with scoring_view:
         use_container_width=True,
     )
 
-    friendly_dataframe(scored[["prospect_id", "account_name", "segment", "fit_score", "intent_score", "signal_data_confidence_score", "total_score"]], hide_index=True, use_container_width=True)
+    friendly_dataframe(scored[["prospect_id", "account_name", "segment", "fit_score", "intent_score", "total_score"]], hide_index=True, use_container_width=True)
 
 with recycling_view:
     st.subheader("Nurture Campaigns")

@@ -9,6 +9,8 @@ from math import sqrt
 import pandas as pd
 
 
+DEFAULT_SCORING_WEIGHTS = {"fit": 4, "intent": 3}
+
 REVIEW_STATUSES = ["Pending", "Approved", "Rejected", "Hold"]
 REVIEW_REASONS = [
     "Meets ICP",
@@ -94,14 +96,7 @@ def score_prospects(prospects: pd.DataFrame, weights: dict[str, float]) -> pd.Da
         & prospects["domain_valid"]
         & ~prospects["is_duplicate"]
     ].copy()
-    result["signal_data_confidence_score"] = (
-        (result["signal_quality_score"] * 2 + result["data_confidence_score"]) / 3
-    ).round(1)
-    score_columns = {
-        "fit": "fit_score",
-        "intent": "intent_score",
-        "signal_data_confidence": "signal_data_confidence_score",
-    }
+    score_columns = {"fit": "fit_score", "intent": "intent_score"}
     total_weight = sum(max(weights.get(key, 0), 0) for key in score_columns) or 1
     result["total_score"] = sum(
         result[column] * max(weights.get(key, 0), 0) for key, column in score_columns.items()

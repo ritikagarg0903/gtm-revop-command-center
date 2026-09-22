@@ -185,39 +185,6 @@ def show_chart(fig, **kwargs):
     return st.plotly_chart(fig, config=config, **kwargs)
 
 
-def company_brief(prospect_records, key):
-    st.markdown("**Company brief for sales**")
-    search = st.text_input("Find a company or contact", key=key + "_search")
-    matches = prospect_records
-    if search:
-        matches = matches[matches["account_name"].str.contains(search, case=False, regex=False, na=False)
-                          | matches["contact_name"].str.contains(search, case=False, regex=False, na=False)]
-    if matches.empty:
-        st.caption("No matching company records.")
-        return
-    choices = matches.set_index("prospect_id")
-    selected = st.selectbox("Company / contact", choices.index.tolist(),
-        format_func=lambda value: f"{choices.loc[value, 'account_name']} · {choices.loc[value, 'contact_name']} ({value})", key=key + "_company")
-    row = choices.loc[selected]
-    left, right = st.columns(2)
-    with left:
-        st.markdown("**" + row.account_name + "**")
-        st.write(row.company_description)
-        st.write(f"Industry: {row.industry} | Employees: {row.employee_count:,}")
-        st.write(f"Headquarters: {row.headquarters}")
-        st.write(f"Customers: {row.target_customers}")
-        st.write(f"Business model: {row.business_model}")
-        st.write(f"Website: {row.canonical_domain}")
-    with right:
-        st.markdown("**Contact and outreach context**")
-        st.write(f"{row.contact_name} — {row.job_title}")
-        st.write(f"Email: {row.canonical_email}")
-        st.write(row.engagement_summary)
-        st.markdown("**Suggested conversation starter**")
-        st.write(row.suggested_outreach)
-    st.caption(f"Company context: {row.profile_source}. Contact/engagement source: {row.source_provider}. Updated: {row.source_updated_at:%d %b %Y}. Outreach guidance is a suggestion, not a verified business need.")
-
-
 deals, quotas, leads, prospects, rep_capacity = load_data(DATA_SCHEMA_VERSION)
 prospects = company_context(prospects)
 
@@ -251,14 +218,12 @@ workflow = Workflow(os.environ.get("WORKFLOW_DB", str(DATA_DIR / "sample-workflo
 try:
     lifecycle = workflow.run(workflow_input, rep_capacity)
     movements = workflow.movements()
-    actions = workflow.actions()
 finally:
     workflow.close()
 if selected_segments:
     prospects = prospects[prospects["segment"].isin(selected_segments)].copy()
     lifecycle = lifecycle[lifecycle["segment"].isin(selected_segments)].copy()
     movements = movements[movements.lead_id.isin(lifecycle.prospect_id)]
-    actions = actions[actions.lead_id.isin(lifecycle.prospect_id)]
 nurture_total = lifecycle.nurture_entry_date.notna().sum()
 recovered = lifecycle.re_engagement_date.notna().sum()
 recycling = {"nurture_total": int(nurture_total), "recovered": int(recovered),
@@ -271,7 +236,7 @@ marketing_pipeline = filtered.loc[
 ].sum()
 
 overview_view, enrichment_view, scoring_view, routing_view, recycling_view = st.tabs(
-    ["Overview", "Prospecting & Enrichment", "Scoring & Review", "Lead Routing", "Lead Recycling"]
+    ["Overview", "Prospecting & Enrichment", "Scoring & Review", "Lead Routing", "Nurture & Follow-up"]
 )
 
 with overview_view:
@@ -400,8 +365,7 @@ with scoring_view:
     friendly_dataframe(scored[["prospect_id", "account_name", "segment", "fit_score", "intent_score", "signal_data_confidence_score", "total_score"]], hide_index=True, use_container_width=True)
 
 with recycling_view:
-    st.subheader("Lead action center")
-    pending = actions[actions.status.eq("pending")]
+    st.subheader("Nurture & Follow-up")
     a, b, c = st.columns(3)
     a.metric("In Nurture", int(lifecycle.status.eq("nurture").sum()))
     b.metric("Recovered SQLs", recycling["recovered"])
@@ -411,9 +375,6 @@ with recycling_view:
     records = lifecycle[lifecycle.lifecycle_stage.isin(state_filter)] if state_filter else lifecycle
     display_columns = ["prospect_id", "account_name", "lifecycle_stage", "assigned_rep", "engagement_score", "next_action"]
     friendly_dataframe(records[display_columns], hide_index=True, use_container_width=True)
-    company_brief(prospects[prospects.prospect_id.isin(records.prospect_id)], "recycling")
-    st.markdown("**Pending actions**")
-    friendly_dataframe(pending[["lead_id", "kind", "status", "created_at"]], hide_index=True, use_container_width=True)
     st.markdown("**Automatic pipeline movements**")
     friendly_dataframe(movements, hide_index=True, use_container_width=True)
     with st.expander("Record an activity"):

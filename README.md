@@ -189,3 +189,7 @@ Overview cards include visible plain-language definitions. Provider quality show
 ## Nurture campaign tracking
 
 The nurture tab shows only currently enrolled nurture leads. It has no dropdowns, sales-rep column, or general pipeline activity controls. Leads entering nurture release their sales rep; recovered SQLs can be assigned again. Campaign fields include segment-based campaign name, status, company sender email, next email type/theme/CTA, confirmed sequence progress, enrollment and send dates, opens/clicks/replies, engagement score, and last engagement. Configure `MARKETING_FROM_EMAIL` to display the company sender; this setting alone does not enable delivery. Themes are planned educational content, not generated/sent email bodies. Counters use observed events and send acknowledgements; legacy missing tracking is blank. Delivery, bounce and unsubscribe rates require future provider integration.
+
+## Overview lead sources
+
+A compact horizontal chart and source-performance table below the four KPIs show lead count, share, MQL count, and lead-to-MQL conversion by acquisition source. Both use the selected lead-creation quarter and segment filters; missing sources appear as Unknown. An empty selection shows an explicit no-leads message.

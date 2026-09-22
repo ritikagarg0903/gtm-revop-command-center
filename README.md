@@ -184,7 +184,7 @@ The dashboard now uses a persistent rules engine with event deduplication, autom
 
 ## Company context for sales
 
-Overview cards include visible plain-language definitions. Provider quality shows record counts, valid email/domain rates, and duplicate rates; Fresh Record and Average Confidence are removed. Company enrichment fields remain in the prospect table. Standalone sales briefs and the technical pending-action queue are removed from the dashboard; the nurture tab is named Nurture Campaigns. Generated company profiles are explicitly synthetic. Existing provider records without these fields display Not provided; no live company research is claimed.
+Overview cards keep definitions in question-mark tooltips only. Provider quality shows record counts, valid email/domain rates, and duplicate rates; Fresh Record and Average Confidence are removed. Company enrichment fields remain in the prospect table. Standalone sales briefs and the technical pending-action queue are removed from the dashboard; the nurture tab is named Nurture Campaigns. Generated company profiles are explicitly synthetic. Existing provider records without these fields display Not provided; no live company research is claimed.
 
 ## Nurture campaign tracking
 

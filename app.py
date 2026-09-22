@@ -248,11 +248,6 @@ with overview_view:
              help="Total opportunity value from Inbound, Paid Search, and Events with a close date in the reporting quarter, across all deal stages. Outbound, Partners, and Referrals are excluded.")
     d.metric("Nurture-to-SQL Recovery", f"{recycling['recovery_rate']:.1f}%" if recycling['nurture_total'] else "—",
              help=f"{recycling['recovered']} recovered SQLs / {recycling['nurture_total']} nurture entrants in the current prospect cohort; independent of quarter.")
-    a.caption("New leads created during the selected quarter.")
-    b.caption("Percentage of those leads that became marketing-qualified (MQLs).")
-    c.caption("Opportunity value from Inbound, Paid Search, and Events, across all deal stages—not booked revenue.")
-    d.caption("Percentage of nurtured leads that became sales-qualified (SQLs).")
-    st.caption("Lead metrics use the selected creation quarter; pipeline uses the selected close quarter. Nurture recovery reflects the current prospect cohort.")
 
     st.markdown("### Where leads come from")
     st.caption("Sources for leads created in the selected quarter. Compare volume with qualification to see which channels bring relevant demand.")

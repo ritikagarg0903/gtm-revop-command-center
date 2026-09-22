@@ -9,6 +9,7 @@ import sqlite3
 from pathlib import Path
 import pandas as pd
 from src.lifecycle import CADENCE, EVENT_POINTS
+from src.nurture_campaigns import EMAIL_STEPS
 
 
 class Workflow:
@@ -42,7 +43,8 @@ class Workflow:
 
     def _nurture(self, lead, now, reason):
         lead.update(status='nurture', nurture_entry_date=now.isoformat(), engagement_score=0,
-                    nurture_touch_count=0, cadence_status='completed-no response' if lead['cadence_start_date'] else 'not started')
+                    nurture_touch_count=0, assigned_rep='', nurture_last_sent_date=None,
+                    nurture_opens=0, nurture_clicks=0, nurture_replies=0, nurture_last_engagement=None, cadence_status='completed-no response' if lead['cadence_start_date'] else 'not started')
         self._move(lead, 'Nurture', reason, now)
 
     def run(self, records, reps, events=(), now=None):
@@ -88,6 +90,12 @@ class Workflow:
                 if kind in EVENT_POINTS and valid:
                     if lead['status'] == 'nurture' and at >= pd.Timestamp(lead['nurture_entry_date']):
                         lead['engagement_score'] += EVENT_POINTS[kind]
+                        counter = {'open': 'nurture_opens', 'click': 'nurture_clicks', 'reply': 'nurture_replies'}.get(kind)
+                        if counter:
+                            lead[counter] = lead.get(counter, 0) + 1
+                        previous = lead.get('nurture_last_engagement')
+                        if previous is None or at > pd.Timestamp(previous):
+                            lead['nurture_last_engagement'] = at.isoformat()
                     if kind == 'reply' and lead['cadence_status'] == 'in progress' and at >= pd.Timestamp(lead['cadence_start_date']):
                         lead.update(response_date=at.isoformat(), cadence_status='sales-engaged', status='active')
                         self._move(lead, 'SQL', 'Lead replied during cadence', now)
@@ -99,6 +107,8 @@ class Workflow:
                     self._move(lead, 'Customer', 'CRM closed-won event', now)
             loads = {r.rep_name: int(r.current_load) for _, r in reps.iterrows()}
             for lead in leads.values():
+                if lead['status'] == 'nurture':
+                    lead['assigned_rep'] = ''
                 if lead['assigned_rep'] in loads:
                     loads[lead['assigned_rep']] += 1
             for key, lead in sorted(leads.items()):
@@ -138,7 +148,9 @@ class Workflow:
                             step = lead['nurture_touch_count']
                             lead['next_action'] = 'Monitor engagement' if step >= 4 else 'Deliver next nurture email'
                             if step < 4 and age >= (0, 7, 14, 21)[step]:
-                                self._action(f'nurture:{key}:{lead["nurture_entry_date"]}:{step}', lead, 'nurture_email', {'step': step + 1}, now)
+                                self._action(f'nurture:{key}:{lead["nurture_entry_date"]}:{step}', lead, 'nurture_email', {'step': step + 1, 'campaign': f"{lead['segment']} · Educational nurture",
+                                     'email_type': EMAIL_STEPS[step][1], 'theme': EMAIL_STEPS[step][2],
+                                     'call_to_action': EMAIL_STEPS[step][3]}, now)
                     if lead['cadence_status'] == 'in progress' and lead['lifecycle_stage'] == 'MQL':
                         step = lead['cadence_step']
                         if step < len(CADENCE):
@@ -179,6 +191,7 @@ class Workflow:
             lead = json.loads(self.db.execute('SELECT payload FROM leads WHERE id=?', (key,)).fetchone()[0])
             if kind == 'nurture_email':
                 lead['nurture_touch_count'] += 1
+                lead['nurture_last_sent_date'] = now
             elif kind == 'cadence_task':
                 lead['cadence_step'] += 1
             if kind in ('nurture_email', 'cadence_task'):

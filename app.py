@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import os
-import uuid
 from pathlib import Path
 
 import pandas as pd
@@ -18,6 +17,7 @@ from src.gtm_operations import (
 from src.metrics import filter_deals
 from src.risk_scoring import add_risk_scores
 from src.workflow import Workflow
+from src.nurture_campaigns import campaign_records
 from src.company_context import company_context
 
 
@@ -217,13 +217,11 @@ workflow_input["total_score"] = workflow_input["total_score"].fillna(0)
 workflow = Workflow(os.environ.get("WORKFLOW_DB", str(DATA_DIR / "sample-workflow.sqlite")))
 try:
     lifecycle = workflow.run(workflow_input, rep_capacity)
-    movements = workflow.movements()
 finally:
     workflow.close()
 if selected_segments:
     prospects = prospects[prospects["segment"].isin(selected_segments)].copy()
     lifecycle = lifecycle[lifecycle["segment"].isin(selected_segments)].copy()
-    movements = movements[movements.lead_id.isin(lifecycle.prospect_id)]
 nurture_total = lifecycle.nurture_entry_date.notna().sum()
 recovered = lifecycle.re_engagement_date.notna().sum()
 recycling = {"nurture_total": int(nurture_total), "recovered": int(recovered),
@@ -236,7 +234,7 @@ marketing_pipeline = filtered.loc[
 ].sum()
 
 overview_view, enrichment_view, scoring_view, routing_view, recycling_view = st.tabs(
-    ["Overview", "Prospecting & Enrichment", "Scoring & Review", "Lead Routing", "Nurture & Follow-up"]
+    ["Overview", "Prospecting & Enrichment", "Scoring & Review", "Lead Routing", "Nurture Campaigns"]
 )
 
 with overview_view:
@@ -365,27 +363,20 @@ with scoring_view:
     friendly_dataframe(scored[["prospect_id", "account_name", "segment", "fit_score", "intent_score", "signal_data_confidence_score", "total_score"]], hide_index=True, use_container_width=True)
 
 with recycling_view:
-    st.subheader("Nurture & Follow-up")
+    st.subheader("Nurture Campaigns")
+    campaigns = campaign_records(lifecycle, os.environ.get("MARKETING_FROM_EMAIL", "Not configured"))
     a, b, c = st.columns(3)
-    a.metric("In Nurture", int(lifecycle.status.eq("nurture").sum()))
-    b.metric("Recovered SQLs", recycling["recovered"])
-    c.metric("Needs Attention", int((lifecycle.blocked | (lifecycle.lifecycle_stage.isin(["MQL", "SQL"]) & lifecycle.assigned_rep.eq(""))).sum()))
-    st.caption("Sample data · stage rules active · external delivery not connected")
-    state_filter = st.multiselect("Pipeline stage", ["Lead", "MQL", "Nurture", "SQL", "Opportunity", "Customer", "Dormant"])
-    records = lifecycle[lifecycle.lifecycle_stage.isin(state_filter)] if state_filter else lifecycle
-    display_columns = ["prospect_id", "account_name", "lifecycle_stage", "assigned_rep", "engagement_score", "next_action"]
-    friendly_dataframe(records[display_columns], hide_index=True, use_container_width=True)
-    st.markdown("**Automatic pipeline movements**")
-    friendly_dataframe(movements, hide_index=True, use_container_width=True)
-    with st.expander("Record an activity"):
-        lead_id = st.selectbox("Lead", lifecycle.prospect_id.tolist())
-        event_type = st.selectbox("Activity", ["open", "click", "site revisit", "download", "reply", "opportunity_created", "customer_won"])
-        if st.button("Apply activity", disabled=not lead_id):
-            workflow = Workflow(os.environ.get("WORKFLOW_DB", str(DATA_DIR / "sample-workflow.sqlite")))
-            try:
-                workflow.run(workflow_input, rep_capacity, [{"event_id": str(uuid.uuid4()), "prospect_id": lead_id,
-                    "type": event_type, "occurred_at": pd.Timestamp.now(tz="UTC").isoformat()}])
-            finally:
-                workflow.close()
-            st.rerun()
-    st.download_button("Download lead records", records.to_csv(index=False), "lead-lifecycle.csv", "text/csv")
+    a.metric("Campaign Enrollments", len(campaigns))
+    b.metric("Emails Sent", int(lifecycle.loc[lifecycle.status.eq("nurture"), "nurture_touch_count"].sum()))
+    c.metric("Recovered SQLs", recycling["recovered"])
+    st.caption("Marketing-owned email campaigns · sample data · email delivery not connected. Sent counts require delivery confirmation; blank engagement counts mean tracking history is unavailable.")
+    if campaigns.empty:
+        st.info("No leads are currently enrolled in nurture campaigns.")
+    else:
+        friendly_dataframe(campaigns, hide_index=True, use_container_width=True,
+            column_config={"email_type": "Next Email Type", "email_theme": "Next Email Theme",
+                           "next_email_due": st.column_config.DatetimeColumn("Next Email Due (UTC)", format="D MMM YYYY"),
+                           "last_email_sent": st.column_config.DatetimeColumn("Last Email Sent (UTC)", format="D MMM YYYY"),
+                           "enrolled_on": st.column_config.DatetimeColumn("Enrolled On (UTC)", format="D MMM YYYY")})
+    st.caption("Campaigns use the configured company marketing address. A due date is a planned send, not confirmation that an email was sent.")
+    st.download_button("Download campaign tracking", campaigns.to_csv(index=False), "nurture-campaigns.csv", "text/csv")

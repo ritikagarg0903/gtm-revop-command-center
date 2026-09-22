@@ -63,7 +63,7 @@ The navigation has five main tabs, with no nested GTM Operations tabs:
 - **Prospecting & Enrichment:** Provider quality and validated prospect records.
 - **Scoring & Review:** Configurable scoring and the review preview.
 - **Lead Routing:** Ownership, routing exceptions, and rep capacity.
-- **Nurture & Follow-up:** Nurture, cadence, lifecycle records, next actions, and CSV export.
+- **Nurture Campaigns:** Marketing-owned email campaign enrollment, next email themes, sequence progress, send dates, engagement, and CSV export.
 
 Funnel and acquisition-source views, pipeline risk/aging details, and additional summary metrics have been removed to focus the dashboard on a Marketing Specialist workflow. Marketing-sourced pipeline is total opportunity value across stages from Inbound, Paid Search, and Events; the metric tooltip makes this attribution convention explicit. Lead metrics use creation quarter, pipeline uses close quarter, and nurture recovery uses the current simulated prospect cohort. Segment filters apply throughout.
 
@@ -184,4 +184,8 @@ The dashboard now uses a persistent rules engine with event deduplication, autom
 
 ## Company context for sales
 
-Overview cards include visible plain-language definitions. Provider quality shows record counts, valid email/domain rates, and duplicate rates; Fresh Record and Average Confidence are removed. Company enrichment fields remain in the prospect table. Standalone sales briefs and the technical pending-action queue are removed from the dashboard; the nurture tab is named Nurture & Follow-up. Generated company profiles are explicitly synthetic. Existing provider records without these fields display Not provided; no live company research is claimed.
+Overview cards include visible plain-language definitions. Provider quality shows record counts, valid email/domain rates, and duplicate rates; Fresh Record and Average Confidence are removed. Company enrichment fields remain in the prospect table. Standalone sales briefs and the technical pending-action queue are removed from the dashboard; the nurture tab is named Nurture Campaigns. Generated company profiles are explicitly synthetic. Existing provider records without these fields display Not provided; no live company research is claimed.
+
+## Nurture campaign tracking
+
+The nurture tab shows only currently enrolled nurture leads. It has no dropdowns, sales-rep column, or general pipeline activity controls. Leads entering nurture release their sales rep; recovered SQLs can be assigned again. Campaign fields include segment-based campaign name, status, company sender email, next email type/theme/CTA, confirmed sequence progress, enrollment and send dates, opens/clicks/replies, engagement score, and last engagement. Configure `MARKETING_FROM_EMAIL` to display the company sender; this setting alone does not enable delivery. Themes are planned educational content, not generated/sent email bodies. Counters use observed events and send acknowledgements; legacy missing tracking is blank. Delivery, bounce and unsubscribe rates require future provider integration.

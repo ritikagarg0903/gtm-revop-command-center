@@ -18,6 +18,7 @@ from src.gtm_operations import (
 from src.metrics import filter_deals
 from src.risk_scoring import add_risk_scores
 from src.workflow import Workflow
+from src.company_context import company_context
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -27,7 +28,7 @@ QUOTAS_PATH = DATA_DIR / "rep_quotas.csv"
 LEADS_PATH = DATA_DIR / "synthetic_leads.csv"
 PROSPECTS_PATH = DATA_DIR / "synthetic_prospects.csv"
 REP_CAPACITY_PATH = DATA_DIR / "rep_capacity.csv"
-DATA_SCHEMA_VERSION = 3
+DATA_SCHEMA_VERSION = 4
 
 
 st.set_page_config(
@@ -184,7 +185,41 @@ def show_chart(fig, **kwargs):
     return st.plotly_chart(fig, config=config, **kwargs)
 
 
+def company_brief(prospect_records, key):
+    st.markdown("**Company brief for sales**")
+    search = st.text_input("Find a company or contact", key=key + "_search")
+    matches = prospect_records
+    if search:
+        matches = matches[matches["account_name"].str.contains(search, case=False, regex=False, na=False)
+                          | matches["contact_name"].str.contains(search, case=False, regex=False, na=False)]
+    if matches.empty:
+        st.caption("No matching company records.")
+        return
+    choices = matches.set_index("prospect_id")
+    selected = st.selectbox("Company / contact", choices.index.tolist(),
+        format_func=lambda value: f"{choices.loc[value, 'account_name']} · {choices.loc[value, 'contact_name']} ({value})", key=key + "_company")
+    row = choices.loc[selected]
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**" + row.account_name + "**")
+        st.write(row.company_description)
+        st.write(f"Industry: {row.industry} | Employees: {row.employee_count:,}")
+        st.write(f"Headquarters: {row.headquarters}")
+        st.write(f"Customers: {row.target_customers}")
+        st.write(f"Business model: {row.business_model}")
+        st.write(f"Website: {row.canonical_domain}")
+    with right:
+        st.markdown("**Contact and outreach context**")
+        st.write(f"{row.contact_name} — {row.job_title}")
+        st.write(f"Email: {row.canonical_email}")
+        st.write(row.engagement_summary)
+        st.markdown("**Suggested conversation starter**")
+        st.write(row.suggested_outreach)
+    st.caption(f"Company context: {row.profile_source}. Contact/engagement source: {row.source_provider}. Updated: {row.source_updated_at:%d %b %Y}. Outreach guidance is a suggestion, not a verified business need.")
+
+
 deals, quotas, leads, prospects, rep_capacity = load_data(DATA_SCHEMA_VERSION)
+prospects = company_context(prospects)
 
 st.title("GTM & Revenue Operations Command Center")
 st.caption(
@@ -250,6 +285,10 @@ with overview_view:
              help="Total opportunity value from Inbound, Paid Search, and Events with a close date in the reporting quarter, across all deal stages. Outbound, Partners, and Referrals are excluded.")
     d.metric("Nurture-to-SQL Recovery", f"{recycling['recovery_rate']:.1f}%" if recycling['nurture_total'] else "—",
              help=f"{recycling['recovered']} recovered SQLs / {recycling['nurture_total']} nurture entrants in the current prospect cohort; independent of quarter.")
+    a.caption("New leads created during the selected quarter.")
+    b.caption("Percentage of those leads that became marketing-qualified (MQLs).")
+    c.caption("Opportunity value from Inbound, Paid Search, and Events, across all deal stages—not booked revenue.")
+    d.caption("Percentage of nurtured leads that became sales-qualified (SQLs).")
     st.caption("Lead metrics use the selected creation quarter; pipeline uses the selected close quarter. Nurture recovery reflects the current prospect cohort.")
 
 with routing_view:
@@ -260,6 +299,7 @@ with routing_view:
     a.metric("Assigned Leads", int(owned.sum()))
     b.metric("Awaiting Owner", int(awaiting.sum()))
     friendly_dataframe(lifecycle[["prospect_id", "account_name", "segment", "territory", "lifecycle_stage", "assigned_rep", "next_action"]], hide_index=True, use_container_width=True)
+    company_brief(prospects[prospects.prospect_id.isin(lifecycle.prospect_id)], "routing")
     with st.expander("Rep capacity and availability"):
         friendly_dataframe(rep_capacity, hide_index=True, use_container_width=True)
 
@@ -276,17 +316,13 @@ with enrichment_view:
     enrich3.metric("Duplicates Blocked", f"{prospects['is_duplicate'].sum():,}")
     enrich4.metric("Records Older Than 30 Days", f"{(prospects['source_updated_at'] < stale_cutoff).sum():,}")
 
-    provider_quality = prospects.assign(
-        fresh_record=prospects["source_updated_at"] >= stale_cutoff,
-    ).groupby("source_provider", as_index=False).agg(
+    provider_quality = prospects.groupby("source_provider", as_index=False).agg(
         records=("prospect_id", "count"),
         valid_email_rate=("email_valid", "mean"),
         valid_domain_rate=("domain_valid", "mean"),
         duplicate_rate=("is_duplicate", "mean"),
-        fresh_record_rate=("fresh_record", "mean"),
-        average_confidence=("source_confidence", "mean"),
     )
-    for column in ["valid_email_rate", "valid_domain_rate", "duplicate_rate", "fresh_record_rate", "average_confidence"]:
+    for column in ["valid_email_rate", "valid_domain_rate", "duplicate_rate"]:
         provider_quality[column] = (provider_quality[column] * 100).round(1)
     st.markdown("**Provider Data Quality**")
     friendly_dataframe(
@@ -294,7 +330,7 @@ with enrichment_view:
         use_container_width=True,
         hide_index=True,
         column_config={column: st.column_config.NumberColumn(friendly_column_name(column), format="%.1f%%") for column in [
-            "valid_email_rate", "valid_domain_rate", "duplicate_rate", "fresh_record_rate", "average_confidence"
+            "valid_email_rate", "valid_domain_rate", "duplicate_rate"
         ]},
     )
 
@@ -302,7 +338,7 @@ with enrichment_view:
     enrichment_display = prospects[
         ~prospects["is_duplicate"] & prospects["email_valid"] & prospects["domain_valid"]
     ].copy()
-    enrichment_display["source_confidence_pct"] = enrichment_display["source_confidence"] * 100
+    company_brief(enrichment_display, "enrichment")
     friendly_dataframe(
         enrichment_display[
             [
@@ -319,14 +355,18 @@ with enrichment_view:
                 "content_engagements_30d",
                 "pricing_page_views_30d",
                 "source_provider",
-                "source_confidence_pct",
+                "industry",
+                "company_description",
+                "target_customers",
+                "business_model",
+                "headquarters",
+                "suggested_outreach",
                 "source_updated_at",
             ]
         ].head(100),
         use_container_width=True,
         hide_index=True,
         column_config={
-            "source_confidence_pct": st.column_config.NumberColumn("Source confidence", format="%.0f%%"),
             "website_visits_30d": "Website Visits (30 Days)",
             "content_engagements_30d": "Content Engagements (30 Days)",
             "pricing_page_views_30d": "Pricing Page Views (30 Days)",
@@ -373,6 +413,7 @@ with recycling_view:
     records = lifecycle[lifecycle.lifecycle_stage.isin(state_filter)] if state_filter else lifecycle
     display_columns = ["prospect_id", "account_name", "lifecycle_stage", "assigned_rep", "engagement_score", "next_action"]
     friendly_dataframe(records[display_columns], hide_index=True, use_container_width=True)
+    company_brief(prospects[prospects.prospect_id.isin(records.prospect_id)], "recycling")
     st.markdown("**Pending actions**")
     friendly_dataframe(pending[["lead_id", "kind", "status", "created_at"]], hide_index=True, use_container_width=True)
     st.markdown("**Automatic pipeline movements**")

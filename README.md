@@ -181,3 +181,7 @@ Validate with `python -m unittest discover -s tests -v`.
 ## Automatic Workflow
 
 The dashboard now uses a persistent rules engine with event deduplication, automatic pipeline transitions, capacity-aware assignment, pending delivery actions, and a movement audit trail. Scoring uses the fixed 40/30/30 model; the former what-if review editor is removed. The historical simulation module remains only for reference tests. See [Automatic workflow](docs/automatic-workflow.md) for rules, worker execution, data contracts, and deferred integration requirements.
+
+## Company context for sales
+
+Overview cards include visible plain-language definitions. Provider quality shows record counts, valid email/domain rates, and duplicate rates; Fresh Record and Average Confidence are removed. Searchable company briefs in Enrichment, Routing, and Recycling show company description, industry, size, headquarters, target customers, business model, contact details, engagement signals, and a suggested outreach angle. Generated company profiles are explicitly synthetic. Existing provider records without these fields display Not provided; no live company research is claimed.

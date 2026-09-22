@@ -376,7 +376,8 @@ def generate_prospects(row_count: int = 500) -> pd.DataFrame:
             }
         )
 
-    return add_canonical_and_duplicate_fields(pd.DataFrame(rows))
+    from src.company_context import add_sample_company_context
+    return add_sample_company_context(add_canonical_and_duplicate_fields(pd.DataFrame(rows)))
 
 
 def generate_rep_capacity() -> pd.DataFrame:
@@ -444,4 +445,3 @@ def write_data(output_dir: Path | str = "data") -> None:
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parents[1]
     write_data(project_root / "data")
-

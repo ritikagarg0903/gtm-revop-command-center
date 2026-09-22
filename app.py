@@ -18,6 +18,8 @@ from src.metrics import filter_deals
 from src.risk_scoring import add_risk_scores
 from src.workflow import Workflow
 from src.nurture_campaigns import campaign_records
+from src.demo_activity import demo_activity, email_metrics
+from src.lifecycle import CADENCE
 from src.company_context import company_context
 
 
@@ -219,9 +221,17 @@ try:
     lifecycle = workflow.run(workflow_input, rep_capacity)
 finally:
     workflow.close()
+demo_enabled = not os.environ.get("WORKFLOW_DB") and os.environ.get("DEMO_ACTIVITY", "1") == "1"
+demo_campaigns = pd.DataFrame()
+demo_emails = pd.DataFrame()
+if demo_enabled:
+    lifecycle, demo_campaigns, demo_emails = demo_activity(lifecycle)
 if selected_segments:
     prospects = prospects[prospects["segment"].isin(selected_segments)].copy()
     lifecycle = lifecycle[lifecycle["segment"].isin(selected_segments)].copy()
+    if demo_enabled:
+        demo_campaigns = demo_campaigns[demo_campaigns.prospect_id.isin(lifecycle.prospect_id)] if not demo_campaigns.empty else demo_campaigns
+        demo_emails = demo_emails[demo_emails.segment.isin(selected_segments)]
 nurture_total = lifecycle.nurture_entry_date.notna().sum()
 recovered = lifecycle.re_engagement_date.notna().sum()
 recycling = {"nurture_total": int(nurture_total), "recovered": int(recovered),
@@ -285,13 +295,26 @@ with overview_view:
             st.caption("MQLs are marketing-qualified leads. Lead → MQL is the percentage of each source's leads that qualified.")
 
 with routing_view:
-    st.subheader("Lead ownership")
-    owned = lifecycle.assigned_rep.ne("")
-    awaiting = lifecycle.lifecycle_stage.eq("MQL") & ~owned & ~lifecycle.blocked
-    a, b = st.columns(2)
-    a.metric("Assigned Leads", int(owned.sum()))
-    b.metric("Awaiting Owner", int(awaiting.sum()))
-    friendly_dataframe(lifecycle[["prospect_id", "account_name", "segment", "territory", "lifecycle_stage", "assigned_rep", "next_action"]], hide_index=True, use_container_width=True)
+    st.subheader("Sales routing & follow-up")
+    sales = lifecycle[lifecycle.lifecycle_stage.isin(["MQL", "SQL", "Opportunity", "Customer"]) & ~lifecycle.blocked].copy()
+    if demo_enabled:
+        st.caption("Illustrative sample activity · stage mix and follow-up history are generated for this demo; no outreach was sent.")
+    a, b, c = st.columns(3)
+    a.metric("Assigned Leads", int(sales.assigned_rep.ne("").sum()))
+    b.metric("Awaiting Owner", int(sales.assigned_rep.eq("").sum()))
+    c.metric("Sales Engaged", int(sales.cadence_status.eq("sales-engaged").sum()))
+    st.markdown("**Sales follow-up sequence · business days**")
+    sequence = st.columns(5)
+    for column, (day, action) in zip(sequence, CADENCE):
+        column.markdown(f"**Day {day}**")
+        column.caption(action)
+    st.caption("A reply stops the sequence for a live conversation. No response after the completed sequence returns the lead to marketing nurture.")
+    sales['priority'] = sales['total_score'].map(lambda score: 'High' if score >= 85 else 'Standard')
+    sales['sequence_progress'] = sales.cadence_step.map(lambda step: f"{int(step)} / 5 completed")
+    sales['next_touch_due'] = sales.apply(lambda r: pd.Timestamp(r.cadence_start_date) + pd.offsets.BDay(CADENCE[int(r.cadence_step)][0])
+        if r.cadence_status == 'in progress' and int(r.cadence_step) < 5 and pd.notna(r.cadence_start_date) else pd.NaT, axis=1) if len(sales) else pd.Series(dtype='datetime64[ns]')
+    friendly_dataframe(sales[["prospect_id", "account_name", "segment", "territory", "lifecycle_stage", "assigned_rep", "priority", "total_score", "sequence_progress", "cadence_status", "last_touch_date", "next_touch_due", "response_date", "next_action"]],
+        hide_index=True, use_container_width=True, column_config={"cadence_status": "Response / Sequence Status", "last_touch_date": "Last Touch", "next_action": "Next Step"})
     with st.expander("Rep capacity and availability"):
         friendly_dataframe(rep_capacity, hide_index=True, use_container_width=True)
 
@@ -394,17 +417,29 @@ with scoring_view:
 
 with recycling_view:
     st.subheader("Nurture Campaigns")
-    campaigns = campaign_records(lifecycle, os.environ.get("MARKETING_FROM_EMAIL", "Not configured"))
+    campaigns = demo_campaigns if demo_enabled else campaign_records(lifecycle, os.environ.get("MARKETING_FROM_EMAIL", "Not configured"))
     a, b, c = st.columns(3)
     a.metric("Campaign Enrollments", len(campaigns))
-    b.metric("Emails Sent", int(lifecycle.loc[lifecycle.status.eq("nurture"), "nurture_touch_count"].sum()))
+    b.metric("Emails Sent", len(demo_emails) if demo_enabled else int(lifecycle.loc[lifecycle.status.eq("nurture"), "nurture_touch_count"].sum()))
     c.metric("Recovered SQLs", recycling["recovered"])
-    st.caption("Marketing-owned email campaigns · sample data · email delivery not connected. Sent counts require delivery confirmation; blank engagement counts mean tracking history is unavailable.")
+    if demo_enabled:
+        st.caption("Illustrative sample campaign activity · includes active, completed, bounced, unsubscribed, dormant and recovered enrollments. These numbers are generated, not live email results.")
+        rates = email_metrics(demo_emails)
+        rate_columns = st.columns(4)
+        for column, (label, field) in zip(rate_columns, [("Delivery Rate", "delivery_rate"), ("Open Rate", "open_rate"), ("Click Rate", "click_rate"), ("Reply Rate", "reply_rate")]):
+            value = rates[field]
+            column.metric(label, f"{value:.1f}%" if value is not None else "—",
+                help="Delivered emails / sent emails." if field == 'delivery_rate' else "Unique emails with this event / delivered emails. Multiple events on one email count once.")
+    else:
+        st.caption("Marketing-owned email campaigns · delivery not connected. Counts require confirmed activity.")
     if campaigns.empty:
         st.info("No leads are currently enrolled in nurture campaigns.")
     else:
         friendly_dataframe(campaigns, hide_index=True, use_container_width=True,
             column_config={"email_type": "Next Email Type", "email_theme": "Next Email Theme",
+                           "open_rate": st.column_config.NumberColumn("Open Rate", format="%.1f%%"),
+                           "click_rate": st.column_config.NumberColumn("Click Rate", format="%.1f%%"),
+                           "reply_rate": st.column_config.NumberColumn("Reply Rate", format="%.1f%%"),
                            "next_email_due": st.column_config.DatetimeColumn("Next Email Due (UTC)", format="D MMM YYYY"),
                            "last_email_sent": st.column_config.DatetimeColumn("Last Email Sent (UTC)", format="D MMM YYYY"),
                            "enrolled_on": st.column_config.DatetimeColumn("Enrolled On (UTC)", format="D MMM YYYY")})

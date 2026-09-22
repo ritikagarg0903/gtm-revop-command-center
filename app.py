@@ -254,6 +254,41 @@ with overview_view:
     d.caption("Percentage of nurtured leads that became sales-qualified (SQLs).")
     st.caption("Lead metrics use the selected creation quarter; pipeline uses the selected close quarter. Nurture recovery reflects the current prospect cohort.")
 
+    st.markdown("### Where leads come from")
+    st.caption("Sources for leads created in the selected quarter. Compare volume with qualification to see which channels bring relevant demand.")
+    if filtered_leads.empty:
+        st.info("No leads match this quarter and segment selection.")
+    else:
+        source_summary = (
+            filtered_leads.assign(
+                acquisition_source=filtered_leads["acquisition_source"].fillna("Unknown").replace("", "Unknown"),
+                qualified=filtered_leads["mql_date"].notna(),
+            )
+            .groupby("acquisition_source", as_index=False)
+            .agg(leads=("lead_id", "size"), mqls=("qualified", "sum"))
+            .sort_values(["leads", "acquisition_source"], ascending=[False, True])
+        )
+        source_summary["share_pct"] = source_summary["leads"] / source_summary["leads"].sum() * 100
+        source_summary["lead_to_mql_pct"] = source_summary["mqls"] / source_summary["leads"] * 100
+        chart_col, table_col = st.columns([1, 1.15])
+        with chart_col:
+            fig = px.bar(source_summary, x="leads", y="acquisition_source", orientation="h",
+                         text="leads", custom_data=["share_pct"],
+                         labels={"leads": "Leads", "acquisition_source": "Source"})
+            fig.update_traces(marker_color="#4f7df3", textposition="outside",
+                              hovertemplate="%{y}<br>%{x:,} leads<br>%{customdata[0]:.1f}% of leads<extra></extra>")
+            fig.update_layout(height=290, margin=dict(l=0, r=30, t=5, b=5),
+                              yaxis=dict(autorange="reversed"), xaxis=dict(rangemode="tozero"),
+                              showlegend=False)
+            show_chart(fig, use_container_width=True)
+        with table_col:
+            friendly_dataframe(source_summary[["acquisition_source", "leads", "share_pct", "mqls", "lead_to_mql_pct"]],
+                hide_index=True, use_container_width=True,
+                column_config={"acquisition_source": "Lead Source", "mqls": "MQLs",
+                    "share_pct": st.column_config.NumberColumn("Share of Leads", format="%.1f%%"),
+                    "lead_to_mql_pct": st.column_config.NumberColumn("Lead → MQL", format="%.1f%%")})
+            st.caption("MQLs are marketing-qualified leads. Lead → MQL is the percentage of each source's leads that qualified.")
+
 with routing_view:
     st.subheader("Lead ownership")
     owned = lifecycle.assigned_rep.ne("")

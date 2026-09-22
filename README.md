@@ -193,3 +193,9 @@ The nurture tab shows only currently enrolled nurture leads. It has no dropdowns
 ## Overview lead sources
 
 A compact horizontal chart and source-performance table below the four KPIs show lead count, share, MQL count, and lead-to-MQL conversion by acquisition source. Both use the selected lead-creation quarter and segment filters; missing sources appear as Unknown. An empty selection shows an explicit no-leads message.
+
+## Sample sales and campaign history
+
+Default demo mode now shows a deterministic illustrative history across MQL, SQL, Opportunity and Customer, alongside varied nurture campaign outcomes. The presentation-only sample generator never changes persisted workflow state or sends outreach. Set `DEMO_ACTIVITY=0` or configure `WORKFLOW_DB` to use unmodified workflow results. Sample activity is explicitly labeled on the dashboard.
+
+Lead Routing adds the business-day sequence, priority, score, completed steps, response status, last touch, next-touch date, and response date. Nurture includes completed, bounced, unsubscribed, dormant and recovered examples as well as active campaigns. Delivery rate is delivered/sent; open, click and reply rates count unique emails with the event divided by delivered emails. The values reconcile to deterministic sample email rows, not live provider analytics.

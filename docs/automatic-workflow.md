@@ -1,6 +1,6 @@
 # Automatic lead workflow
 
-The dashboard runs `src/workflow.py` against sample records. Unlike the historical simulation, this engine persists actual transitions in SQLite and calculates follow-up work from observed events and delivery acknowledgements. The action center shows records, pending actions, and an audit trail; the instructional panels have been removed.
+The dashboard runs `src/workflow.py` against sample records. Unlike the historical simulation, this engine persists actual transitions in SQLite and calculates follow-up work from observed events and delivery acknowledgements. The Nurture Campaigns tab shows marketing email tracking only. Pending actions and movement history remain in the engine for adapters; they are not shown in this tab.
 
 ## Rules
 
@@ -30,6 +30,6 @@ Events are JSON objects with unique `event_id`, `prospect_id`, `type`, and UTC `
 
 The engine automatically changes its internal pipeline and writes durable pending actions. A future CRM/email adapter must consume these actions, preserve action-ID idempotency, process each lead's stage updates in order, check cancellation before delivery, and call `Workflow.acknowledge(action_id)` only after confirmed success. Pending emails/calls are not counted as completed. LinkedIn and phone steps represent rep tasks.
 
-No CRM or email adapter is connected, per the current scope. `Record an activity` is a sample-data input for exercising the workflow; it does not send a message. No production credentials or real data should be added to the public demo. The sample dashboard uses `data/sample-workflow.sqlite`; `WORKFLOW_DB` may override the storage location for testing. This alone does not connect a live data feed.
+No CRM or email adapter is connected, per the current scope. The dashboard no longer includes manual activity dropdowns; events are processed through the worker contract. No production credentials or real data should be added to the public demo. The sample dashboard uses `data/sample-workflow.sqlite`; `WORKFLOW_DB` may override the storage location for testing. This alone does not connect a live data feed.
 
 SQLite survives process restarts on persistent disk, but Streamlit Cloud local files are not durable across rebuilds. A production deployment needs authenticated ingestion, durable database storage, a separately supervised worker, and the chosen source/delivery adapters. These are intentionally deferred until the source system is selected.

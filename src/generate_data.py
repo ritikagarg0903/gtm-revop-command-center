@@ -329,7 +329,7 @@ def generate_prospects(row_count: int = 500) -> pd.DataFrame:
             ),
             1,
         )
-        composite = fit_score * 0.4 + intent_score * 0.3 + signal_quality * 0.2 + data_confidence * 0.1
+        composite = (fit_score * 4 + intent_score * 3) / 7
         review_status = random.choices(
             ["Approved", "Pending", "Hold", "Rejected"],
             weights=[50 if composite >= 70 else 20, 24, 12, 14 if composite >= 70 else 44],

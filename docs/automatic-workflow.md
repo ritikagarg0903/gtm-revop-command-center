@@ -12,7 +12,7 @@ The dashboard runs `src/workflow.py` against sample records. Unlike the historic
 - 90 days in nurture with no engagement: Dormant.
 - `opportunity_created` event: Opportunity. `customer_won` event: Customer. Scores alone never imply a sale.
 
-Scoring is now automatic at 40/30/30. The old human-review preview does not control routing. Duplicate event IDs are ignored, database transactions serialize updates, and an audit record plus CRM update action is saved with each stage transition.
+Scoring is automatic using Fit and Intent only: (4 × Fit + 3 × Intent) / 7. Signal and data confidence do not affect the score. The old human-review preview does not control routing. Duplicate event IDs are ignored, database transactions serialize updates, and an audit record plus CRM update action is saved with each stage transition.
 
 ## Worker
 

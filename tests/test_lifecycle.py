@@ -9,7 +9,7 @@ class LifecycleTests(unittest.TestCase):
     def setUpClass(cls):
         cls.prospects = generate_prospects()
         cls.reps = generate_rep_capacity()
-        cls.scored = score_prospects(cls.prospects, {'fit': 40, 'intent': 30, 'signal_data_confidence': 30})
+        cls.scored = score_prospects(cls.prospects, {'fit': 4, 'intent': 3})
         cls.routed = route_leads(cls.scored[cls.scored.review_status.eq('Approved')], cls.reps)
         cls.result = simulate_lifecycle(cls.prospects, cls.scored, cls.routed, cls.reps, '2026-09-21')
 
